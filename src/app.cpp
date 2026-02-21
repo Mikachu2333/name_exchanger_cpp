@@ -17,6 +17,8 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <windows.h>
+#include <algorithm>
+#include <dwmapi.h>
 #include <filesystem>
 #include <string>
 
@@ -29,6 +31,51 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 static App g_app;
 
 App& GetApp() { return g_app; }
+
+namespace {
+ImVec4 ToImVec4(COLORREF color, float alpha = 1.0f) {
+    return ImVec4(GetRValue(color) / 255.0f, GetGValue(color) / 255.0f, GetBValue(color) / 255.0f, alpha);
+}
+
+float Luminance(const ImVec4& color) { return 0.2126f * color.x + 0.7152f * color.y + 0.0722f * color.z; }
+
+ImVec4 ShiftLuminanceToRange(const ImVec4& color, float minLum, float maxLum) {
+    const float lum = Luminance(color);
+    float delta = 0.0f;
+    if (lum < minLum) {
+        delta = minLum - lum;
+    } else if (lum > maxLum) {
+        delta = maxLum - lum;
+    }
+
+    ImVec4 out = color;
+    out.x = std::clamp(out.x + delta, 0.0f, 1.0f);
+    out.y = std::clamp(out.y + delta, 0.0f, 1.0f);
+    out.z = std::clamp(out.z + delta, 0.0f, 1.0f);
+    return out;
+}
+
+bool IsWindowsAppsDarkMode() {
+    DWORD value = 1;
+    DWORD size = sizeof(value);
+    const LSTATUS status =
+        RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                     L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size);
+    if (status != ERROR_SUCCESS) {
+        return false;
+    }
+    return value == 0;
+}
+
+ImVec4 GetWindowsAccentColor() {
+    DWORD argb = 0;
+    BOOL opaqueBlend = FALSE;
+    if (SUCCEEDED(DwmGetColorizationColor(&argb, &opaqueBlend))) {
+        return ImVec4(((argb >> 16) & 0xFF) / 255.0f, ((argb >> 8) & 0xFF) / 255.0f, (argb & 0xFF) / 255.0f, 1.0f);
+    }
+    return ToImVec4(GetSysColor(COLOR_HIGHLIGHT));
+}
+}  // namespace
 
 static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) {
@@ -55,6 +102,70 @@ void App::UpdateDpiScale() {
         }
     }
     dpiScale = static_cast<float>(dpi) / 96.0f;
+}
+
+void App::ApplySystemTheme() {
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowBorderSize = 0.0f;
+    style.WindowRounding = 0.0f;
+    style.FrameRounding = 0.0f;
+    style.FrameBorderSize = 0.0f;
+    style.Colors[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
+
+    const bool darkMode = IsWindowsAppsDarkMode();
+
+    ImVec4 windowBg = ToImVec4(GetSysColor(COLOR_WINDOW));
+    ImVec4 text = ToImVec4(GetSysColor(COLOR_WINDOWTEXT));
+    ImVec4 border = ToImVec4(GetSysColor(COLOR_3DSHADOW));
+    ImVec4 frameBg = ToImVec4(GetSysColor(COLOR_BTNFACE));
+    ImVec4 scrollbarBg = ToImVec4(GetSysColor(COLOR_SCROLLBAR));
+    ImVec4 accent = GetWindowsAccentColor();
+
+    if (darkMode) {
+        windowBg = ShiftLuminanceToRange(windowBg, 0.08f, 0.18f);
+        text = ShiftLuminanceToRange(text, 0.82f, 0.96f);
+        border = ShiftLuminanceToRange(border, 0.28f, 0.42f);
+        frameBg = ShiftLuminanceToRange(frameBg, 0.14f, 0.24f);
+        scrollbarBg = ShiftLuminanceToRange(scrollbarBg, 0.12f, 0.22f);
+        accent = ShiftLuminanceToRange(accent, 0.08f, 0.12f);
+    } else {
+        windowBg = ShiftLuminanceToRange(windowBg, 0.90f, 0.98f);
+        text = ShiftLuminanceToRange(text, 0.05f, 0.20f);
+        border = ShiftLuminanceToRange(border, 0.50f, 0.70f);
+        frameBg = ShiftLuminanceToRange(frameBg, 0.94f, 1.00f);
+        scrollbarBg = ShiftLuminanceToRange(scrollbarBg, 0.90f, 0.98f);
+        accent = ShiftLuminanceToRange(accent, 0.35f, 0.62f);
+    }
+
+    style.Colors[ImGuiCol_WindowBg] = windowBg;
+    style.Colors[ImGuiCol_Text] = text;
+    style.Colors[ImGuiCol_Border] = border;
+    style.Colors[ImGuiCol_FrameBg] = frameBg;
+    style.Colors[ImGuiCol_FrameBgHovered] =
+        ShiftLuminanceToRange(frameBg, darkMode ? 0.20f : 0.88f, darkMode ? 0.32f : 0.94f);
+    style.Colors[ImGuiCol_FrameBgActive] =
+        ShiftLuminanceToRange(frameBg, darkMode ? 0.24f : 0.82f, darkMode ? 0.38f : 0.90f);
+    style.Colors[ImGuiCol_Button] = ShiftLuminanceToRange(frameBg, darkMode ? 0.18f : 0.90f, darkMode ? 0.28f : 0.96f);
+    style.Colors[ImGuiCol_ButtonHovered] =
+        ShiftLuminanceToRange(frameBg, darkMode ? 0.24f : 0.82f, darkMode ? 0.36f : 0.92f);
+    style.Colors[ImGuiCol_ButtonActive] =
+        ShiftLuminanceToRange(frameBg, darkMode ? 0.30f : 0.75f, darkMode ? 0.44f : 0.86f);
+    style.Colors[ImGuiCol_ScrollbarBg] = scrollbarBg;
+    style.Colors[ImGuiCol_ScrollbarGrab] =
+        ShiftLuminanceToRange(accent, darkMode ? 0.36f : 0.45f, darkMode ? 0.55f : 0.65f);
+    style.Colors[ImGuiCol_ScrollbarGrabHovered] =
+        ShiftLuminanceToRange(accent, darkMode ? 0.46f : 0.55f, darkMode ? 0.62f : 0.75f);
+    style.Colors[ImGuiCol_ScrollbarGrabActive] =
+        ShiftLuminanceToRange(accent, darkMode ? 0.56f : 0.65f, darkMode ? 0.72f : 0.85f);
+
+    clearColor = windowBg;
+    topBarBgColor = accent;
+    topBarTextColor =
+        (Luminance(topBarBgColor) > 0.50f) ? ImVec4(0.0f, 0.0f, 0.0f, 1.0f) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+    topBarButtonHoveredColor = ImVec4(topBarTextColor.x, topBarTextColor.y, topBarTextColor.z, 0.14f);
+    topBarButtonActiveColor = ImVec4(topBarTextColor.x, topBarTextColor.y, topBarTextColor.z, 0.24f);
+    tooltipBgColor = ShiftLuminanceToRange(windowBg, darkMode ? 0.16f : 0.94f, darkMode ? 0.24f : 1.0f);
+    tooltipTextColor = text;
 }
 
 bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
@@ -145,28 +256,7 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr;  // Disable ini file
 
-    // Custom style (no default theme)
-    {
-        ImGuiStyle& style = ImGui::GetStyle();
-        style.WindowBorderSize = 0.0f;
-        style.WindowRounding = 0.0f;
-        style.FrameRounding = 0.0f;
-        style.FrameBorderSize = 0.0f;
-        style.Colors[ImGuiCol_WindowBg] = ImVec4(240 / 255.0f, 240 / 255.0f, 240 / 255.0f, 1.0f);
-        style.Colors[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
-        style.Colors[ImGuiCol_Text] = ImVec4(0, 0, 0, 1);
-        style.Colors[ImGuiCol_Border] = ImVec4(0.70f, 0.70f, 0.70f, 1.0f);
-        style.Colors[ImGuiCol_FrameBg] = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-        style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.96f, 0.96f, 0.96f, 1.0f);
-        style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.92f, 0.92f, 0.92f, 1.0f);
-        style.Colors[ImGuiCol_Button] = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
-        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.78f, 0.78f, 0.78f, 1.0f);
-        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.70f, 0.70f, 0.70f, 1.0f);
-        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.95f, 0.95f, 0.95f, 1.0f);
-        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.70f, 0.70f, 0.70f, 1.0f);
-        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
-        style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.40f, 0.40f, 0.40f, 1.0f);
-    }
+    ApplySystemTheme();
 
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(d3d.device, d3d.deviceContext);
@@ -239,9 +329,9 @@ int App::Run() {
 
         // Rendering
         ImGui::Render();
-        const float clearColor[4] = {240 / 255.0f, 240 / 255.0f, 240 / 255.0f, 1.0f};
+        const float clearColorData[4] = {clearColor.x, clearColor.y, clearColor.z, clearColor.w};
         d3d.deviceContext->OMSetRenderTargets(1, &d3d.renderTargetView, nullptr);
-        d3d.deviceContext->ClearRenderTargetView(d3d.renderTargetView, clearColor);
+        d3d.deviceContext->ClearRenderTargetView(d3d.renderTargetView, clearColorData);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
         HRESULT hr = d3d.swapChain->Present(1, 0);  // Present with vsync
@@ -294,7 +384,7 @@ void App::RenderUI() {
     // === Top Bar ===
     ImGui::SetCursorPos(ImVec2(0, 0));
 
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 120, 215, 255));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, topBarBgColor);
     ImGui::BeginChild("TopBar", ImVec2(winW, barH), false);
     ImGui::PopStyleColor();
 
@@ -304,8 +394,8 @@ void App::RenderUI() {
 
     // Transparent button background
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.15f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.25f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, topBarButtonHoveredColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, topBarButtonActiveColor);
 
     // Pin toggle button - yellow text
     ImGui::SetCursorPos(ImVec2(6 * s, btnY));
@@ -315,10 +405,10 @@ void App::RenderUI() {
         SetWindowPos(hwnd, isTopmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, tooltipBgColor);
         ImGui::BeginTooltip();
         if (fontLabel) ImGui::PushFont(fontLabel);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
+        ImGui::PushStyleColor(ImGuiCol_Text, tooltipTextColor);
         ImGui::TextUnformatted(L.pinTooltip);
         ImGui::PopStyleColor();
         if (fontLabel) ImGui::PopFont();
@@ -336,7 +426,7 @@ void App::RenderUI() {
     ImGui::PopStyleColor();
 
     // Remaining 4 buttons - white text
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, topBarTextColor);
 
     // Admin button
     ImGui::SetCursorPos(ImVec2(winW - each_width * 4, btnY));
@@ -362,10 +452,10 @@ void App::RenderUI() {
         }
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, tooltipBgColor);
         ImGui::BeginTooltip();
         if (fontLabel) ImGui::PushFont(fontLabel);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
+        ImGui::PushStyleColor(ImGuiCol_Text, tooltipTextColor);
         ImGui::TextUnformatted(L.adminTooltip);
         ImGui::PopStyleColor();
         if (fontLabel) ImGui::PopFont();
@@ -379,10 +469,10 @@ void App::RenderUI() {
         CreateSendToShortcut(false);
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, tooltipBgColor);
         ImGui::BeginTooltip();
         if (fontLabel) ImGui::PushFont(fontLabel);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
+        ImGui::PushStyleColor(ImGuiCol_Text, tooltipTextColor);
         ImGui::TextUnformatted(L.sendToTooltip);
         ImGui::PopStyleColor();
         if (fontLabel) ImGui::PopFont();
@@ -548,6 +638,13 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_DESTROY:
             PostQuitMessage(0);
+            return 0;
+
+        case WM_THEMECHANGED:
+        case WM_SETTINGCHANGE:
+            if (ImGui::GetCurrentContext()) {
+                ApplySystemTheme();
+            }
             return 0;
 
         case WM_DPICHANGED: {
