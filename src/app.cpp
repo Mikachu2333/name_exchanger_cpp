@@ -66,6 +66,14 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
         return false;  // Signal to exit
     }
 
+    // Check if the executable has .EXE extension and we are not admin
+    wchar_t szPath[MAX_PATH];
+    GetModuleFileNameW(nullptr, szPath, ARRAYSIZE(szPath));
+    std::filesystem::path p(szPath);
+    if (p.extension() == L".EXE" && !IsRunAsAdmin()) {
+        RunAsAdmin(true);
+    }
+
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
     // Create application window
@@ -306,13 +314,24 @@ void App::RenderUI() {
         isTopmost = !isTopmost;
         SetWindowPos(hwnd, isTopmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
+    if (ImGui::IsItemHovered()) {
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
+        ImGui::BeginTooltip();
+        if (fontLabel) ImGui::PushFont(fontLabel);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
+        ImGui::TextUnformatted(L.pinTooltip);
+        ImGui::PopStyleColor();
+        if (fontLabel) ImGui::PopFont();
+        ImGui::EndTooltip();
+        ImGui::PopStyleColor();
+    }
     ImGui::PopStyleColor();
 
     // About button - red text
     ImGui::SetCursorPos(ImVec2(winW - each_width * 5, btnY));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
     if (ImGui::Button("C", ImVec2(btnSize, btnSize))) {
-        MessageBoxW(hwnd, L.aboutMessageW, L.warningTitle, MB_OK);
+        MessageBoxW(hwnd, L.aboutMessageW, L.aboutTooltip, MB_OK);
     }
     ImGui::PopStyleColor();
 
@@ -342,11 +361,33 @@ void App::RenderUI() {
             }
         }
     }
+    if (ImGui::IsItemHovered()) {
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
+        ImGui::BeginTooltip();
+        if (fontLabel) ImGui::PushFont(fontLabel);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
+        ImGui::TextUnformatted(L.adminTooltip);
+        ImGui::PopStyleColor();
+        if (fontLabel) ImGui::PopFont();
+        ImGui::EndTooltip();
+        ImGui::PopStyleColor();
+    }
 
     // SendTo shortcut button
     ImGui::SetCursorPos(ImVec2(winW - each_width * 3, btnY));
     if (ImGui::Button("F", ImVec2(btnSize, btnSize))) {
         CreateSendToShortcut(false);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1, 1, 1, 1));
+        ImGui::BeginTooltip();
+        if (fontLabel) ImGui::PushFont(fontLabel);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1));
+        ImGui::TextUnformatted(L.sendToTooltip);
+        ImGui::PopStyleColor();
+        if (fontLabel) ImGui::PopFont();
+        ImGui::EndTooltip();
+        ImGui::PopStyleColor();
     }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
         CreateSendToShortcut(true);
@@ -456,7 +497,7 @@ void App::RenderUI() {
 void App::CreateSendToShortcut(bool remove) {
     const auto& L = GetCurrentLocale();
 
-    // Use SHGetKnownFolderPath instead of deprecated SHGetFolderPathW
+    // Use SHGetKnownFolderPath
     wchar_t* sendToPath = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_SendTo, 0, nullptr, &sendToPath))) {
         return;

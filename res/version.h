@@ -1,2 +1,2 @@
-#define VERSION_INT  2,1,8,0
-#define VERSION_STR  "2.1.8"
+#define VERSION_INT  2026,2,22,9999
+#define VERSION_STR  "1.26.35"

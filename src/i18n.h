@@ -14,13 +14,9 @@ struct LocaleStrings {
     const char *file2Label;
     const char *startButton;
     const char *pinTooltip;
-    const char *aboutTooltip;
+    const wchar_t *aboutTooltip;
     const char *adminTooltip;
     const char *sendToTooltip;
-    const char *sendToRemoveHint;
-    const char *minimizeTooltip;
-    const char *closeTooltip;
-    const char *aboutMessage;
     const wchar_t *aboutMessageW;
     const wchar_t *trayTooltip;
     const wchar_t *shortcutCreated;
