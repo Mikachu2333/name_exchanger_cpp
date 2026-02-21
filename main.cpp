@@ -25,7 +25,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*l
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
     // Mutex to prevent multiple instances
-    HANDLE hMutex = CreateMutexW(nullptr, TRUE, L"D79BA905DBC642759A74162A2FAABC28");
+    HANDLE hMutex = CreateMutexW(nullptr, TRUE, L"CFFD3CF9A003453C9893A8CD49EF7ED5");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND existingApp = FindWindowW(L"NameExchangerCppClass", L"FilenameExchanger");
         if (existingApp) {

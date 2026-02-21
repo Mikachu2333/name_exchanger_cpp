@@ -1,7 +1,7 @@
 #pragma once
 
 #include "d3d_helpers.h"
-
+#include <string>
 #include <windows.h>
 
 // Forward declare ImFont
@@ -9,10 +9,8 @@ struct ImFont;
 
 // Application state and UI
 struct App {
-    // Path buffers (larger than MAX_PATH to handle UTF-8 encoded paths)
-    static constexpr int kPathBufSize = 1024;
-    char path1[kPathBufSize] = {};
-    char path2[kPathBufSize] = {};
+    std::string path1 = "";
+    std::string path2 = "";
 
     bool isTopmost = true;
     bool showWindow = true;

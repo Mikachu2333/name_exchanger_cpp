@@ -22,6 +22,7 @@ set(IMGUI_SOURCES
     ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/imgui_impl_win32.cpp
     ${IMGUI_DIR}/imgui_impl_dx11.cpp
+    ${IMGUI_DIR}/imgui_stdlib.cpp
 )
 
 # Application sources

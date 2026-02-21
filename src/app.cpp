@@ -7,6 +7,7 @@
 #include "utils.h"
 
 #include "imgui.h"
+#include "imgui_stdlib.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
@@ -126,7 +127,7 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr;  // Disable ini file
 
-    ImGui::StyleColorsDark();
+    ImGui::StyleColorsLight();
 
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(d3d.device, d3d.deviceContext);
@@ -242,16 +243,16 @@ void App::RenderUI() {
     float winW = 362 * s;
     float winH = 242 * s;
     float barH = 33 * s;
-    float btnSize = 27 * s;
+    float btnSize = 28 * s;
     float btnSizeWide = 28 * s;
-    float margin = 4 * s;
+    float margin = 2 * s;
     float contentX = 11 * s;
 
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2(winW, winH));
     ImGui::Begin("Main", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings);
+                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_Tooltip);
 
     // === Top Bar ===
     ImGui::BeginChild("TopBar", ImVec2(winW, barH), false);
@@ -341,24 +342,24 @@ void App::RenderUI() {
     ImGui::Text("%s", L.file1Label);
     ImGui::SetCursorPos(ImVec2(contentX, 59 * s));
     ImGui::SetNextItemWidth(inputWidth);
-    ImGui::InputText("##path1", path1, kPathBufSize);
+    ImGui::InputText("##path1", &path1);
 
     ImGui::SetCursorPos(ImVec2(contentX, 106 * s));
     ImGui::Text("%s", L.file2Label);
     ImGui::SetCursorPos(ImVec2(contentX, 126 * s));
     ImGui::SetNextItemWidth(inputWidth);
-    ImGui::InputText("##path2", path2, kPathBufSize);
+    ImGui::InputText("##path2", &path2);
 
     // Exchange button
     float btnW = 127 * s;
     float btnH2 = 44 * s;
     ImGui::SetCursorPos(ImVec2((winW - btnW) / 2.0f, 183 * s));
     if (ImGui::Button(L.startButton, ImVec2(btnW, btnH2))) {
-        int returnId = exchange(path1, path2);
+        int returnId = exchange(path1.c_str(), path2.c_str());
         const char* info = GetOutputInfo(returnId);
         if (returnId == 0) {
-            path1[0] = '\0';
-            path2[0] = '\0';
+            path1.clear();
+            path2.clear();
         } else {
             std::wstring winfo = Utf8ToUtf16(info);
             MessageBoxW(hwnd, winfo.c_str(), L.errorTitle, MB_OK | MB_ICONERROR);
@@ -437,8 +438,7 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             float fontSize = 18.0f * dpiScale;
             float iconFontSize = 21.0f * dpiScale;
 
-            const char* fontPaths[] = {"c:\\Windows\\Fonts\\msyh.ttc", "c:\\Windows\\Fonts\\msyh.ttf",
-                                       "c:\\Windows\\Fonts\\simhei.ttf", "c:\\Windows\\Fonts\\simsun.ttc"};
+            const char* fontPaths[] = {"c:\\Windows\\Fonts\\msyh.ttc", "c:\\Windows\\Fonts\\msyh.ttf"};
             bool fontLoaded = false;
             for (const char* fontPath : fontPaths) {
                 if (GetFileAttributesA(fontPath) != INVALID_FILE_ATTRIBUTES) {
@@ -471,21 +471,21 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 DragQueryFileW(hDrop, 0, file, MAX_PATH);
                 std::string u8file = Utf16ToUtf8(file);
 
-                if (path1[0] == '\0') {
-                    strncpy_s(path1, u8file.c_str(), kPathBufSize - 1);
-                } else if (path2[0] == '\0') {
-                    strncpy_s(path2, u8file.c_str(), kPathBufSize - 1);
+                if (path1.empty()) {
+                    path1 = u8file;
+                } else if (path2.empty()) {
+                    path2 = u8file;
                 } else {
-                    strncpy_s(path1, u8file.c_str(), kPathBufSize - 1);
-                    path2[0] = '\0';
+                    path1 = u8file;
+                    path2.clear();
                 }
             } else if (count >= 2) {
                 wchar_t file1[MAX_PATH];
                 wchar_t file2[MAX_PATH];
                 DragQueryFileW(hDrop, 0, file1, MAX_PATH);
                 DragQueryFileW(hDrop, 1, file2, MAX_PATH);
-                strncpy_s(path1, Utf16ToUtf8(file1).c_str(), kPathBufSize - 1);
-                strncpy_s(path2, Utf16ToUtf8(file2).c_str(), kPathBufSize - 1);
+                path1 = Utf16ToUtf8(file1);
+                path2 = Utf16ToUtf8(file2);
             }
             DragFinish(hDrop);
             return 0;
