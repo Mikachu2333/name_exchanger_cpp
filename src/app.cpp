@@ -1,0 +1,511 @@
+#include "app.h"
+
+#include "d3d_helpers.h"
+#include "font_data.h"
+#include "i18n.h"
+#include "tray.h"
+#include "utils.h"
+
+#include "imgui.h"
+#include "imgui_impl_dx11.h"
+#include "imgui_impl_win32.h"
+
+#include <objbase.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <string>
+
+// External function from the Rust library
+extern "C" int exchange(const char* path1, const char* path2);
+
+// Forward declaration for ImGui Win32 handler
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+static App g_app;
+
+App& GetApp() { return g_app; }
+
+static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) {
+        return true;
+    }
+    return GetApp().HandleMessage(hWnd, msg, wParam, lParam);
+}
+
+void App::UpdateDpiScale() {
+    // Use GetDpiForWindow (Windows 10 1607+)
+    using GetDpiForWindowFn = UINT(WINAPI*)(HWND);
+    static auto pGetDpiForWindow =
+        reinterpret_cast<GetDpiForWindowFn>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+
+    UINT dpi = 96;
+    if (pGetDpiForWindow && hwnd) {
+        dpi = pGetDpiForWindow(hwnd);
+    } else {
+        // Fallback: use DC DPI
+        HDC hdc = GetDC(nullptr);
+        if (hdc) {
+            dpi = static_cast<UINT>(GetDeviceCaps(hdc, LOGPIXELSX));
+            ReleaseDC(nullptr, hdc);
+        }
+    }
+    dpiScale = static_cast<float>(dpi) / 96.0f;
+}
+
+bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
+    // Command line mode: 2 args → exchange and exit
+    if (argc == 3) {
+        std::string p1 = Utf16ToUtf8(argv[1]);
+        std::string p2 = Utf16ToUtf8(argv[2]);
+        exchange(p1.c_str(), p2.c_str());
+        return false;  // Signal to exit
+    }
+
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+    // Create application window
+    ImGui_ImplWin32_EnableDpiAwareness();
+
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(wc);
+    wc.style = CS_CLASSDC;
+    wc.lpfnWndProc = ::WndProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = L"NameExchangerClass";
+    RegisterClassExW(&wc);
+
+    // Get primary monitor DPI for initial window sizing
+    {
+        HDC hdc = GetDC(nullptr);
+        if (hdc) {
+            dpiScale = static_cast<float>(GetDeviceCaps(hdc, LOGPIXELSX)) / 96.0f;
+            ReleaseDC(nullptr, hdc);
+        }
+    }
+
+    int winW = static_cast<int>(362 * dpiScale);
+    int winH = static_cast<int>(242 * dpiScale);
+
+    hwnd = CreateWindowExW(0, wc.lpszClassName, L"FilenameExchanger", WS_POPUP, 100, 100, winW, winH, nullptr, nullptr,
+                           hInstance, nullptr);
+
+    if (!hwnd) {
+        return false;
+    }
+
+    // Update DPI from actual window
+    UpdateDpiScale();
+    winW = static_cast<int>(362 * dpiScale);
+    winH = static_cast<int>(242 * dpiScale);
+    SetWindowPos(hwnd, nullptr, 0, 0, winW, winH, SWP_NOMOVE | SWP_NOZORDER);
+
+    // Initialize Direct3D
+    if (!CreateDeviceD3D(hwnd, d3d)) {
+        CleanupDeviceD3D(d3d);
+        UnregisterClassW(wc.lpszClassName, hInstance);
+        return false;
+    }
+
+    ShowWindow(hwnd, SW_SHOWDEFAULT);
+    UpdateWindow(hwnd);
+
+    if (isTopmost) {
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    }
+
+    // Setup tray icon
+    SetupTrayIcon(hwnd);
+
+    // Enable drag and drop
+    DragAcceptFiles(hwnd, TRUE);
+
+    // Setup ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.IniFilename = nullptr;  // Disable ini file
+
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplWin32_Init(hwnd);
+    ImGui_ImplDX11_Init(d3d.device, d3d.deviceContext);
+
+    // Load system font with Chinese support
+    float fontSize = 18.0f * dpiScale;
+    float iconFontSize = 21.0f * dpiScale;
+
+    // Try common system font paths
+    const char* fontPaths[] = {"c:\\Windows\\Fonts\\msyh.ttc", "c:\\Windows\\Fonts\\msyh.ttf",
+                               "c:\\Windows\\Fonts\\simhei.ttf", "c:\\Windows\\Fonts\\simsun.ttc"};
+
+    bool fontLoaded = false;
+    for (const char* fontPath : fontPaths) {
+        if (GetFileAttributesA(fontPath) != INVALID_FILE_ATTRIBUTES) {
+            io.Fonts->AddFontFromFileTTF(fontPath, fontSize, nullptr, io.Fonts->GetGlyphRangesChineseFull());
+            fontLoaded = true;
+            break;
+        }
+    }
+    if (!fontLoaded) {
+        // Fallback to default font with larger size
+        ImFontConfig cfg;
+        cfg.SizePixels = fontSize;
+        io.Fonts->AddFontDefault(&cfg);
+    }
+
+    // Load embedded icon font
+    {
+        ImFontConfig cfg;
+        cfg.FontDataOwnedByAtlas = false;  // We manage the data lifetime
+        fontIcon = io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(kIconFontData),
+                                                  static_cast<int>(kIconFontDataSize), iconFontSize, &cfg);
+    }
+
+    return true;
+}
+
+int App::Run() {
+    while (!done) {
+        MSG msg;
+        while (PeekMessageW(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+            if (msg.message == WM_QUIT) {
+                done = true;
+            }
+        }
+        if (done) {
+            break;
+        }
+
+        if (!showWindow) {
+            Sleep(10);
+            continue;
+        }
+
+        // Handle swap chain occlusion
+        if (d3d.swapChainOccluded && d3d.swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) {
+            Sleep(10);
+            continue;
+        }
+        d3d.swapChainOccluded = false;
+
+        // Handle resize
+        if (d3d.resizeWidth != 0 && d3d.resizeHeight != 0) {
+            CleanupRenderTarget(d3d);
+            d3d.swapChain->ResizeBuffers(0, d3d.resizeWidth, d3d.resizeHeight, DXGI_FORMAT_UNKNOWN, 0);
+            d3d.resizeWidth = d3d.resizeHeight = 0;
+            CreateRenderTarget(d3d);
+        }
+
+        // Start ImGui frame
+        ImGui_ImplDX11_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+
+        RenderUI();
+
+        // Rendering
+        ImGui::Render();
+        const float clearColor[4] = {0.45f, 0.55f, 0.60f, 1.00f};
+        d3d.deviceContext->OMSetRenderTargets(1, &d3d.renderTargetView, nullptr);
+        d3d.deviceContext->ClearRenderTargetView(d3d.renderTargetView, clearColor);
+        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+        HRESULT hr = d3d.swapChain->Present(1, 0);  // Present with vsync
+        d3d.swapChainOccluded = (hr == DXGI_STATUS_OCCLUDED);
+    }
+
+    return 0;
+}
+
+void App::Shutdown() {
+    RemoveTrayIcon();
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+    CleanupDeviceD3D(d3d);
+
+    if (hwnd) {
+        DestroyWindow(hwnd);
+        hwnd = nullptr;
+    }
+    UnregisterClassW(L"NameExchangerClass", GetModuleHandleW(nullptr));
+    CoUninitialize();
+}
+
+void App::RenderUI() {
+    const auto& L = GetCurrentLocale();
+    const float s = dpiScale;
+
+    float winW = 362 * s;
+    float winH = 242 * s;
+    float barH = 33 * s;
+    float btnSize = 27 * s;
+    float btnSizeWide = 28 * s;
+    float margin = 4 * s;
+    float contentX = 11 * s;
+
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImVec2(winW, winH));
+    ImGui::Begin("Main", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings);
+
+    // === Top Bar ===
+    ImGui::BeginChild("TopBar", ImVec2(winW, barH), false);
+
+    if (fontIcon) {
+        ImGui::PushFont(fontIcon);
+    }
+
+    // Pin toggle button
+    ImGui::SetCursorPos(ImVec2(margin, margin));
+    if (ImGui::Button(isTopmost ? "B" : "A", ImVec2(btnSize, btnSize))) {
+        isTopmost = !isTopmost;
+        SetWindowPos(hwnd, isTopmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", L.pinTooltip);
+    }
+
+    // About button
+    ImGui::SetCursorPos(ImVec2(184 * s, margin));
+    if (ImGui::Button("C", ImVec2(btnSizeWide, btnSize))) {
+        MessageBoxW(hwnd, L.aboutMessageW, L.warningTitle, MB_OK);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", L.aboutTooltip);
+    }
+
+    // Admin button
+    ImGui::SetCursorPos(ImVec2(222 * s, margin));
+    bool isAdmin = IsRunAsAdmin();
+    if (ImGui::Button(isAdmin ? "E" : "D", ImVec2(btnSize, btnSize))) {
+        if (!isAdmin) {
+            RunAsAdmin();
+        }
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", L.adminTooltip);
+    }
+
+    // SendTo shortcut button
+    ImGui::SetCursorPos(ImVec2(258 * s, margin));
+    if (ImGui::Button("F", ImVec2(btnSize, btnSize))) {
+        CreateSendToShortcut(false);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", L.sendToTooltip);
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        CreateSendToShortcut(true);
+    }
+
+    // Minimize button
+    ImGui::SetCursorPos(ImVec2(292 * s, margin));
+    if (ImGui::Button("G", ImVec2(btnSize, btnSize))) {
+        showWindow = false;
+        ShowWindow(hwnd, SW_HIDE);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", L.minimizeTooltip);
+    }
+
+    // Close button
+    ImGui::SetCursorPos(ImVec2(328 * s, margin));
+    if (ImGui::Button("H", ImVec2(btnSizeWide, btnSize))) {
+        done = true;
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", L.closeTooltip);
+    }
+
+    if (fontIcon) {
+        ImGui::PopFont();
+    }
+
+    // Window drag: only on empty area of the bar, AFTER all buttons (fixes double-click issue)
+    if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        ReleaseCapture();
+        SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+    }
+
+    ImGui::EndChild();
+
+    // === Main Content ===
+    float inputWidth = winW - contentX * 2;
+
+    ImGui::SetCursorPos(ImVec2(contentX, 39 * s));
+    ImGui::Text("%s", L.file1Label);
+    ImGui::SetCursorPos(ImVec2(contentX, 59 * s));
+    ImGui::SetNextItemWidth(inputWidth);
+    ImGui::InputText("##path1", path1, kPathBufSize);
+
+    ImGui::SetCursorPos(ImVec2(contentX, 106 * s));
+    ImGui::Text("%s", L.file2Label);
+    ImGui::SetCursorPos(ImVec2(contentX, 126 * s));
+    ImGui::SetNextItemWidth(inputWidth);
+    ImGui::InputText("##path2", path2, kPathBufSize);
+
+    // Exchange button
+    float btnW = 127 * s;
+    float btnH2 = 44 * s;
+    ImGui::SetCursorPos(ImVec2((winW - btnW) / 2.0f, 183 * s));
+    if (ImGui::Button(L.startButton, ImVec2(btnW, btnH2))) {
+        int returnId = exchange(path1, path2);
+        const char* info = GetOutputInfo(returnId);
+        if (returnId == 0) {
+            path1[0] = '\0';
+            path2[0] = '\0';
+        } else {
+            std::wstring winfo = Utf8ToUtf16(info);
+            MessageBoxW(hwnd, winfo.c_str(), L.errorTitle, MB_OK | MB_ICONERROR);
+        }
+    }
+
+    ImGui::End();
+}
+
+void App::CreateSendToShortcut(bool remove) {
+    const auto& L = GetCurrentLocale();
+
+    // Use SHGetKnownFolderPath instead of deprecated SHGetFolderPathW
+    wchar_t* sendToPath = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_SendTo, 0, nullptr, &sendToPath))) {
+        return;
+    }
+
+    std::wstring shortcutPath = std::wstring(sendToPath) + L"\\name_exchanger.lnk";
+    CoTaskMemFree(sendToPath);
+
+    if (remove) {
+        DeleteFileW(shortcutPath.c_str());
+        MessageBoxW(hwnd, L.shortcutRemoved, L.tipsTitle, MB_OK);
+    } else {
+        IShellLinkW* psl = nullptr;
+        if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
+                                       reinterpret_cast<void**>(&psl)))) {
+            wchar_t exePath[MAX_PATH];
+            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+            psl->SetPath(exePath);
+            psl->SetDescription(L"FilenameExchanger");
+            psl->SetIconLocation(exePath, 0);
+
+            IPersistFile* ppf = nullptr;
+            if (SUCCEEDED(psl->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&ppf)))) {
+                ppf->Save(shortcutPath.c_str(), TRUE);
+                ppf->Release();
+                MessageBoxW(hwnd, L.shortcutCreated, L.tipsTitle, MB_OK);
+            }
+            psl->Release();
+        }
+    }
+}
+
+LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_SIZE:
+            if (wParam == SIZE_MINIMIZED) {
+                return 0;
+            }
+            d3d.resizeWidth = LOWORD(lParam);
+            d3d.resizeHeight = HIWORD(lParam);
+            return 0;
+
+        case WM_SYSCOMMAND:
+            if ((wParam & 0xfff0) == SC_KEYMENU) {
+                return 0;  // Disable ALT application menu
+            }
+            break;
+
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+
+        case WM_DPICHANGED: {
+            UpdateDpiScale();
+            RECT* pRect = reinterpret_cast<RECT*>(lParam);
+            SetWindowPos(hwnd, nullptr, pRect->left, pRect->top, pRect->right - pRect->left, pRect->bottom - pRect->top,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+
+            // Rebuild fonts with new DPI
+            ImGuiIO& io = ImGui::GetIO();
+            io.Fonts->Clear();
+
+            float fontSize = 18.0f * dpiScale;
+            float iconFontSize = 21.0f * dpiScale;
+
+            const char* fontPaths[] = {"c:\\Windows\\Fonts\\msyh.ttc", "c:\\Windows\\Fonts\\msyh.ttf",
+                                       "c:\\Windows\\Fonts\\simhei.ttf", "c:\\Windows\\Fonts\\simsun.ttc"};
+            bool fontLoaded = false;
+            for (const char* fontPath : fontPaths) {
+                if (GetFileAttributesA(fontPath) != INVALID_FILE_ATTRIBUTES) {
+                    io.Fonts->AddFontFromFileTTF(fontPath, fontSize, nullptr, io.Fonts->GetGlyphRangesChineseFull());
+                    fontLoaded = true;
+                    break;
+                }
+            }
+            if (!fontLoaded) {
+                ImFontConfig cfg;
+                cfg.SizePixels = fontSize;
+                io.Fonts->AddFontDefault(&cfg);
+            }
+
+            ImFontConfig cfg;
+            cfg.FontDataOwnedByAtlas = false;
+            fontIcon = io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(kIconFontData),
+                                                      static_cast<int>(kIconFontDataSize), iconFontSize, &cfg);
+
+            ImGui_ImplDX11_InvalidateDeviceObjects();
+            return 0;
+        }
+
+        case WM_DROPFILES: {
+            HDROP hDrop = reinterpret_cast<HDROP>(wParam);
+            UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+
+            if (count == 1) {
+                wchar_t file[MAX_PATH];
+                DragQueryFileW(hDrop, 0, file, MAX_PATH);
+                std::string u8file = Utf16ToUtf8(file);
+
+                if (path1[0] == '\0') {
+                    strncpy_s(path1, u8file.c_str(), kPathBufSize - 1);
+                } else if (path2[0] == '\0') {
+                    strncpy_s(path2, u8file.c_str(), kPathBufSize - 1);
+                } else {
+                    strncpy_s(path1, u8file.c_str(), kPathBufSize - 1);
+                    path2[0] = '\0';
+                }
+            } else if (count >= 2) {
+                wchar_t file1[MAX_PATH];
+                wchar_t file2[MAX_PATH];
+                DragQueryFileW(hDrop, 0, file1, MAX_PATH);
+                DragQueryFileW(hDrop, 1, file2, MAX_PATH);
+                strncpy_s(path1, Utf16ToUtf8(file1).c_str(), kPathBufSize - 1);
+                strncpy_s(path2, Utf16ToUtf8(file2).c_str(), kPathBufSize - 1);
+            }
+            DragFinish(hDrop);
+            return 0;
+        }
+
+        case WM_USER + 1: {
+            switch (lParam) {
+                case WM_LBUTTONUP:
+                    showWindow = !showWindow;
+                    ShowWindow(hwnd, showWindow ? SW_SHOW : SW_HIDE);
+                    if (showWindow) {
+                        SetForegroundWindow(hwnd);
+                    }
+                    break;
+                case WM_RBUTTONUP:
+                    PostQuitMessage(0);
+                    break;
+            }
+            return 0;
+        }
+    }
+    return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
