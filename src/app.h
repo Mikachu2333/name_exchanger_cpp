@@ -1,6 +1,7 @@
 #pragma once
 
 #include "d3d_helpers.h"
+#include "imgui.h"
 #include <string>
 #include <windows.h>
 
@@ -24,6 +25,9 @@ struct App {
 
     // Fonts
     ImFont* fontIcon = nullptr;
+    ImFont* fontLabel = nullptr;
+    ImFont* fontInput = nullptr;
+    ImFont* fontStartBtn = nullptr;
 
     // Initialize the application (create window, D3D, ImGui, tray)
     bool Init(HINSTANCE hInstance, int argc, wchar_t** argv);
@@ -45,6 +49,9 @@ struct App {
 
     // Get DPI scale factor for the window
     void UpdateDpiScale();
+
+    // Load MSYH font with the given size
+    ImFont* LoadMsyhFont(ImGuiIO& io, float size);
 };
 
 // Global app instance (needed for WndProc callback)

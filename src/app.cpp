@@ -7,13 +7,17 @@
 #include "utils.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_stdlib.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
+#include <minwindef.h>
 #include <objbase.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <windows.h>
+#include <filesystem>
 #include <string>
 
 // External function from the Rust library
@@ -87,8 +91,13 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
     int winW = static_cast<int>(362 * dpiScale);
     int winH = static_cast<int>(242 * dpiScale);
 
-    hwnd = CreateWindowExW(0, wc.lpszClassName, L"FilenameExchanger", WS_POPUP, 100, 100, winW, winH, nullptr, nullptr,
-                           hInstance, nullptr);
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    int posX = (screenW - winW) / 2;
+    int posY = (screenH - winH) / 2;
+
+    hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, wc.lpszClassName, L"FilenameExchanger", WS_POPUP, posX, posY, winW, winH,
+                           nullptr, nullptr, hInstance, nullptr);
 
     if (!hwnd) {
         return false;
@@ -96,8 +105,8 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
 
     // Update DPI from actual window
     UpdateDpiScale();
-    winW = static_cast<int>(362 * dpiScale);
-    winH = static_cast<int>(242 * dpiScale);
+    winW = static_cast<int>(364 * dpiScale);
+    winH = static_cast<int>(240 * dpiScale);
     SetWindowPos(hwnd, nullptr, 0, 0, winW, winH, SWP_NOMOVE | SWP_NOZORDER);
 
     // Initialize Direct3D
@@ -109,6 +118,7 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
 
     ShowWindow(hwnd, SW_SHOWDEFAULT);
     UpdateWindow(hwnd);
+    SetForegroundWindow(hwnd);
 
     if (isTopmost) {
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
@@ -127,40 +137,52 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr;  // Disable ini file
 
-    ImGui::StyleColorsLight();
+    // Custom style (no default theme)
+    {
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.WindowBorderSize = 0.0f;
+        style.WindowRounding = 0.0f;
+        style.FrameRounding = 0.0f;
+        style.FrameBorderSize = 0.0f;
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(240 / 255.0f, 240 / 255.0f, 240 / 255.0f, 1.0f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
+        style.Colors[ImGuiCol_Text] = ImVec4(0, 0, 0, 1);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.70f, 0.70f, 0.70f, 1.0f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+        style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.96f, 0.96f, 0.96f, 1.0f);
+        style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.92f, 0.92f, 0.92f, 1.0f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.78f, 0.78f, 0.78f, 1.0f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.70f, 0.70f, 0.70f, 1.0f);
+        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.95f, 0.95f, 0.95f, 1.0f);
+        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.70f, 0.70f, 0.70f, 1.0f);
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.40f, 0.40f, 0.40f, 1.0f);
+    }
 
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(d3d.device, d3d.deviceContext);
 
-    // Load system font with Chinese support
-    float fontSize = 18.0f * dpiScale;
-    float iconFontSize = 21.0f * dpiScale;
+    // Load fonts with Chinese support
 
-    // Try common system font paths
-    const char* fontPaths[] = {"c:\\Windows\\Fonts\\msyh.ttc", "c:\\Windows\\Fonts\\msyh.ttf",
-                               "c:\\Windows\\Fonts\\simhei.ttf", "c:\\Windows\\Fonts\\simsun.ttc"};
+    // Default font
+    LoadMsyhFont(io, 16.0f * dpiScale);
 
-    bool fontLoaded = false;
-    for (const char* fontPath : fontPaths) {
-        if (GetFileAttributesA(fontPath) != INVALID_FILE_ATTRIBUTES) {
-            io.Fonts->AddFontFromFileTTF(fontPath, fontSize, nullptr, io.Fonts->GetGlyphRangesChineseFull());
-            fontLoaded = true;
-            break;
-        }
-    }
-    if (!fontLoaded) {
-        // Fallback to default font with larger size
-        ImFontConfig cfg;
-        cfg.SizePixels = fontSize;
-        io.Fonts->AddFontDefault(&cfg);
-    }
+    // Label font (16pt)
+    fontLabel = LoadMsyhFont(io, 16.0f * dpiScale);
 
-    // Load embedded icon font
+    // Input font (15pt)
+    fontInput = LoadMsyhFont(io, 15.0f * dpiScale);
+
+    // Start button font (24pt)
+    fontStartBtn = LoadMsyhFont(io, 24.0f * dpiScale);
+
+    // Icon font (15pt for title bar buttons)
     {
         ImFontConfig cfg;
-        cfg.FontDataOwnedByAtlas = false;  // We manage the data lifetime
+        cfg.FontDataOwnedByAtlas = false;
         fontIcon = io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(kIconFontData),
-                                                  static_cast<int>(kIconFontDataSize), iconFontSize, &cfg);
+                                                  static_cast<int>(kIconFontDataSize), 15.0f * dpiScale, &cfg);
     }
 
     return true;
@@ -209,7 +231,7 @@ int App::Run() {
 
         // Rendering
         ImGui::Render();
-        const float clearColor[4] = {0.45f, 0.55f, 0.60f, 1.00f};
+        const float clearColor[4] = {240 / 255.0f, 240 / 255.0f, 240 / 255.0f, 1.0f};
         d3d.deviceContext->OMSetRenderTargets(1, &d3d.renderTargetView, nullptr);
         d3d.deviceContext->ClearRenderTargetView(d3d.renderTargetView, clearColor);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
@@ -240,120 +262,180 @@ void App::RenderUI() {
     const auto& L = GetCurrentLocale();
     const float s = dpiScale;
 
-    float winW = 362 * s;
-    float winH = 242 * s;
-    float barH = 33 * s;
-    float btnSize = 28 * s;
-    float btnSizeWide = 28 * s;
-    float margin = 2 * s;
+    float winW = 364 * s;
+    float winH = 240 * s;
+    float barH = 32 * s;
+    float btnSize = 29 * s;
+    float btnY = (barH - btnSize) / 2.0f;
     float contentX = 11 * s;
+    float inputWidth = winW - contentX * 2;
+    float each_width = 6 * s + btnSize;
 
+    // Clear input focus when window is inactive (requirement 9)
+    if (GetForegroundWindow() != hwnd) {
+        ImGui::ClearActiveID();
+    }
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2(winW, winH));
     ImGui::Begin("Main", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_Tooltip);
+                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings);
 
     // === Top Bar ===
+    ImGui::SetCursorPos(ImVec2(0, 0));
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 120, 215, 255));
     ImGui::BeginChild("TopBar", ImVec2(winW, barH), false);
+    ImGui::PopStyleColor();
 
     if (fontIcon) {
         ImGui::PushFont(fontIcon);
     }
 
-    // Pin toggle button
-    ImGui::SetCursorPos(ImVec2(margin, margin));
+    // Transparent button background
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.15f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.25f));
+
+    // Pin toggle button - yellow text
+    ImGui::SetCursorPos(ImVec2(6 * s, btnY));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.0f, 1.0f));
     if (ImGui::Button(isTopmost ? "B" : "A", ImVec2(btnSize, btnSize))) {
         isTopmost = !isTopmost;
         SetWindowPos(hwnd, isTopmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", L.pinTooltip);
-    }
+    ImGui::PopStyleColor();
 
-    // About button
-    ImGui::SetCursorPos(ImVec2(184 * s, margin));
-    if (ImGui::Button("C", ImVec2(btnSizeWide, btnSize))) {
+    // About button - red text
+    ImGui::SetCursorPos(ImVec2(winW - each_width * 5, btnY));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+    if (ImGui::Button("C", ImVec2(btnSize, btnSize))) {
         MessageBoxW(hwnd, L.aboutMessageW, L.warningTitle, MB_OK);
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", L.aboutTooltip);
-    }
+    ImGui::PopStyleColor();
+
+    // Remaining 4 buttons - white text
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
 
     // Admin button
-    ImGui::SetCursorPos(ImVec2(222 * s, margin));
+    ImGui::SetCursorPos(ImVec2(winW - each_width * 4, btnY));
     bool isAdmin = IsRunAsAdmin();
     if (ImGui::Button(isAdmin ? "E" : "D", ImVec2(btnSize, btnSize))) {
+        wchar_t szPath[MAX_PATH];
+        GetModuleFileNameW(nullptr, szPath, ARRAYSIZE(szPath));
+        std::filesystem::path p(szPath);
         if (!isAdmin) {
-            RunAsAdmin();
+            std::filesystem::path newPath = p.parent_path() / (p.stem().string() + ".EXE");
+            std::filesystem::rename(p, newPath);
+            if (!RunAsAdmin(true)) {
+                std::filesystem::rename(newPath, p);
+                MessageBoxW(hwnd, L"Failed to elevate privileges.", L"Error", MB_OK | MB_ICONERROR);
+            }
+        } else {
+            std::filesystem::path newPath = p.parent_path() / (p.stem().string() + ".exe");
+            std::filesystem::rename(p, newPath);
+            if (!RunAsAdmin(false)) {
+                std::filesystem::rename(newPath, p);
+                MessageBoxW(hwnd, L"Failed to drop privileges.", L"Error", MB_OK | MB_ICONERROR);
+            }
         }
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", L.adminTooltip);
     }
 
     // SendTo shortcut button
-    ImGui::SetCursorPos(ImVec2(258 * s, margin));
+    ImGui::SetCursorPos(ImVec2(winW - each_width * 3, btnY));
     if (ImGui::Button("F", ImVec2(btnSize, btnSize))) {
         CreateSendToShortcut(false);
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", L.sendToTooltip);
     }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
         CreateSendToShortcut(true);
     }
 
     // Minimize button
-    ImGui::SetCursorPos(ImVec2(292 * s, margin));
+    ImGui::SetCursorPos(ImVec2(winW - each_width * 2, btnY));
     if (ImGui::Button("G", ImVec2(btnSize, btnSize))) {
         showWindow = false;
         ShowWindow(hwnd, SW_HIDE);
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", L.minimizeTooltip);
-    }
 
     // Close button
-    ImGui::SetCursorPos(ImVec2(328 * s, margin));
-    if (ImGui::Button("H", ImVec2(btnSizeWide, btnSize))) {
+    ImGui::SetCursorPos(ImVec2(winW - each_width, btnY));
+    if (ImGui::Button("H", ImVec2(btnSize, btnSize))) {
         done = true;
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", L.closeTooltip);
-    }
+
+    ImGui::PopStyleColor();   // white text
+    ImGui::PopStyleColor(3);  // button bg colors
 
     if (fontIcon) {
         ImGui::PopFont();
     }
 
-    // Window drag: only on empty area of the bar, AFTER all buttons (fixes double-click issue)
+    // Window drag on empty area of the bar
     if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         ReleaseCapture();
         SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        ImGui::GetIO().MouseDown[0] = false;
     }
 
     ImGui::EndChild();
 
     // === Main Content ===
-    float inputWidth = winW - contentX * 2;
 
-    ImGui::SetCursorPos(ImVec2(contentX, 39 * s));
+    // Label 1 (font 10pt, height 17, left-aligned)
+    if (fontLabel) ImGui::PushFont(fontLabel);
+    ImGui::SetCursorPos(ImVec2(contentX, 42 * s));
     ImGui::Text("%s", L.file1Label);
-    ImGui::SetCursorPos(ImVec2(contentX, 59 * s));
-    ImGui::SetNextItemWidth(inputWidth);
+    if (fontLabel) ImGui::PopFont();
+
+    // Input 1 (font 14pt, height 28, with border + horizontal scrollbar for long text)
+    if (fontInput) ImGui::PushFont(fontInput);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
+    ImGui::SetCursorPos(ImVec2(contentX, 62 * s));
+
+    const float path1TextW = ImGui::CalcTextSize(path1.c_str()).x;
+    const float path1InnerW = (std::max)(inputWidth, path1TextW + 24.0f * s);
+    const float path1ChildH = 28.0f * s + ImGui::GetStyle().ScrollbarSize;
+
+    ImGui::BeginChild("##path1_scroll", ImVec2(inputWidth, path1ChildH), false, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::SetNextItemWidth(path1InnerW);
     ImGui::InputText("##path1", &path1);
+    ImGui::EndChild();
 
-    ImGui::SetCursorPos(ImVec2(contentX, 106 * s));
+    ImGui::PopStyleVar(2);
+    if (fontInput) ImGui::PopFont();
+
+    // Label 2 (font 10pt, height 17, left-aligned)
+    if (fontLabel) ImGui::PushFont(fontLabel);
+    ImGui::SetCursorPos(ImVec2(contentX, 110 * s));
     ImGui::Text("%s", L.file2Label);
-    ImGui::SetCursorPos(ImVec2(contentX, 126 * s));
-    ImGui::SetNextItemWidth(inputWidth);
-    ImGui::InputText("##path2", &path2);
+    if (fontLabel) ImGui::PopFont();
 
-    // Exchange button
-    float btnW = 127 * s;
-    float btnH2 = 44 * s;
-    ImGui::SetCursorPos(ImVec2((winW - btnW) / 2.0f, 183 * s));
+    // Input 2 (font 14pt, height 28, with border + horizontal scrollbar for long text)
+    if (fontInput) ImGui::PushFont(fontInput);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
+    ImGui::SetCursorPos(ImVec2(contentX, 130 * s));
+
+    const float path2TextW = ImGui::CalcTextSize(path2.c_str()).x;
+    const float path2InnerW = (std::max)(inputWidth, path2TextW + 24.0f * s);
+    const float path2ChildH = 28.0f * s + ImGui::GetStyle().ScrollbarSize;
+
+    ImGui::BeginChild("##path2_scroll", ImVec2(inputWidth, path2ChildH), false, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::SetNextItemWidth(path2InnerW);
+    ImGui::InputText("##path2", &path2);
+    ImGui::EndChild();
+
+    ImGui::PopStyleVar(2);
+    if (fontInput) ImGui::PopFont();
+
+    // Exchange button (font 20pt)
+    if (fontStartBtn) ImGui::PushFont(fontStartBtn);
+    float btnW = 124 * s;
+    float btnH2 = 48 * s;
+    ImGui::SetCursorPos(ImVec2((winW - btnW) / 2.0f, 180 * s));
     if (ImGui::Button(L.startButton, ImVec2(btnW, btnH2))) {
         int returnId = exchange(path1.c_str(), path2.c_str());
         const char* info = GetOutputInfo(returnId);
@@ -365,8 +447,10 @@ void App::RenderUI() {
             MessageBoxW(hwnd, winfo.c_str(), L.errorTitle, MB_OK | MB_ICONERROR);
         }
     }
+    if (fontStartBtn) ImGui::PopFont();
 
     ImGui::End();
+    ImGui::PopStyleVar();  // WindowPadding
 }
 
 void App::CreateSendToShortcut(bool remove) {
@@ -435,28 +519,15 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ImGuiIO& io = ImGui::GetIO();
             io.Fonts->Clear();
 
-            float fontSize = 18.0f * dpiScale;
-            float iconFontSize = 21.0f * dpiScale;
-
-            const char* fontPaths[] = {"c:\\Windows\\Fonts\\msyh.ttc", "c:\\Windows\\Fonts\\msyh.ttf"};
-            bool fontLoaded = false;
-            for (const char* fontPath : fontPaths) {
-                if (GetFileAttributesA(fontPath) != INVALID_FILE_ATTRIBUTES) {
-                    io.Fonts->AddFontFromFileTTF(fontPath, fontSize, nullptr, io.Fonts->GetGlyphRangesChineseFull());
-                    fontLoaded = true;
-                    break;
-                }
-            }
-            if (!fontLoaded) {
-                ImFontConfig cfg;
-                cfg.SizePixels = fontSize;
-                io.Fonts->AddFontDefault(&cfg);
-            }
+            LoadMsyhFont(io, 16.0f * dpiScale);
+            fontLabel = LoadMsyhFont(io, 16.0f * dpiScale);
+            fontInput = LoadMsyhFont(io, 15.0f * dpiScale);
+            fontStartBtn = LoadMsyhFont(io, 24.0f * dpiScale);
 
             ImFontConfig cfg;
             cfg.FontDataOwnedByAtlas = false;
             fontIcon = io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(kIconFontData),
-                                                      static_cast<int>(kIconFontDataSize), iconFontSize, &cfg);
+                                                      static_cast<int>(kIconFontDataSize), 15.0f * dpiScale, &cfg);
 
             ImGui_ImplDX11_InvalidateDeviceObjects();
             return 0;
@@ -509,3 +580,15 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
+
+auto App::LoadMsyhFont(ImGuiIO& io, float size) -> ImFont* {
+    const char* fps[] = {"c:\\Windows\\Fonts\\msyh.ttc", "c:\\Windows\\Fonts\\msyh.ttf"};
+    for (const char* fp : fps) {
+        if (GetFileAttributesA(fp) != INVALID_FILE_ATTRIBUTES) {
+            return io.Fonts->AddFontFromFileTTF(fp, size, nullptr, io.Fonts->GetGlyphRangesChineseFull());
+        }
+    }
+    ImFontConfig cfg;
+    cfg.SizePixels = size;
+    return io.Fonts->AddFontDefault(&cfg);
+};

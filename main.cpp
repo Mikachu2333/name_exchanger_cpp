@@ -1,4 +1,5 @@
 #include "src/app.h"
+#include "src/utils.h"
 
 #include <shellapi.h>
 #include <windows.h>
@@ -20,32 +21,36 @@ void* __CxxFrameHandler3 = nullptr;
 asm(".global \"??_7type_info@@6B@\"\n\"??_7type_info@@6B@\": .long 0");
 #endif
 
+HANDLE g_hMutex = nullptr;
+
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpCmdLine*/, int /*nCmdShow*/) {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
     // Mutex to prevent multiple instances
-    HANDLE hMutex = CreateMutexW(nullptr, TRUE, L"CFFD3CF9A003453C9893A8CD49EF7ED5");
+    g_hMutex = CreateMutexW(nullptr, TRUE, PROCESS_MUTEX_GUID);
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        HWND existingApp = FindWindowW(L"NameExchangerCppClass", L"FilenameExchanger");
-        if (existingApp) {
-            ShowWindow(existingApp, SW_RESTORE);
-            SetForegroundWindow(existingApp);
+        // Wait up to 1 second for the previous instance to exit (e.g. during RunAsAdmin)
+        DWORD waitRes = WaitForSingleObject(g_hMutex, 1000);
+        if (waitRes == WAIT_TIMEOUT) {
+            HWND existingApp = FindWindowW(L"NameExchangerClass", L"FilenameExchanger");
+            if (existingApp) {
+                ShowWindow(existingApp, SW_RESTORE);
+                SetForegroundWindow(existingApp);
+            }
+            LocalFree(argv);
+            CloseHandle(g_hMutex);
+            return 0;
         }
-        LocalFree(argv);
-        if (hMutex) {
-            CloseHandle(hMutex);
-        }
-        return 0;
     }
 
     App& app = GetApp();
 
     if (!app.Init(hInstance, argc, argv)) {
         LocalFree(argv);
-        if (hMutex) {
-            ReleaseMutex(hMutex);
-            CloseHandle(hMutex);
+        if (g_hMutex) {
+            ReleaseMutex(g_hMutex);
+            CloseHandle(g_hMutex);
         }
         return 0;
     }
@@ -54,9 +59,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*l
     int result = app.Run();
     app.Shutdown();
 
-    if (hMutex) {
-        ReleaseMutex(hMutex);
-        CloseHandle(hMutex);
+    if (g_hMutex) {
+        ReleaseMutex(g_hMutex);
+        CloseHandle(g_hMutex);
     }
 
     return result;
