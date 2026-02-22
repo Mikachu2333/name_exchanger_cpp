@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.15)
-project(NameExchanger VERSION 2.2.0 LANGUAGES CXX C)
+cmake_minimum_required(VERSION 4.1.0)
+project(NameExchanger VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,10 +7,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Detect architecture
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(ARCH_SUFFIX "_x64")
-    set(ARCH_DIR "x64")
 else()
-    set(ARCH_SUFFIX "")
-    set(ARCH_DIR "x86")
+    set(ARCH_SUFFIX "_x86")
+endif()
+
+# Detect compiler
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    message(FATAL_ERROR "GNU/MinGW compilers are not supported. Please use MSVC.")
 endif()
 
 # Add ImGui sources
@@ -50,8 +53,11 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Ensure UTF-8 source encoding for all compilers
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
-else()
-    target_compile_options(${PROJECT_NAME} PRIVATE -finput-charset=UTF-8 -fexec-charset=UTF-8)
+endif()
+
+# Use static CRT for MSVC in Release (/MT), dynamic in Debug (/MDd)
+if(MSVC)
+    set_property(TARGET ${PROJECT_NAME} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>")
 endif()
 
 # Link libraries
@@ -74,4 +80,4 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 # Set output name
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "name_exchanger")
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "name_exchanger${COMPILER_SUFFIX}${ARCH_SUFFIX}")

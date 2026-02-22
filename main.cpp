@@ -4,23 +4,6 @@
 #include <shellapi.h>
 #include <windows.h>
 
-#ifdef __GNUC__
-extern "C" {
-void __chkstk() { asm("call ___chkstk_ms"); }
-void* __cxa_allocate_exception(size_t thrown_size) { return malloc(thrown_size); }
-[[noreturn]] void __cxa_throw(void* /*thrown_exception*/, void* /*tinfo*/, void (* /*dest*/)(void*)) {
-    TerminateProcess(GetCurrentProcess(), 1);
-    while (true) {
-    }
-}
-void* __gxx_personality_v0 = nullptr;
-void* _CxxThrowException = nullptr;
-void* __CxxFrameHandler3 = nullptr;
-}
-// Dummy for MSVC RTTI
-asm(".global \"??_7type_info@@6B@\"\n\"??_7type_info@@6B@\": .long 0");
-#endif
-
 HANDLE g_hMutex = nullptr;
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpCmdLine*/, int /*nCmdShow*/) {
