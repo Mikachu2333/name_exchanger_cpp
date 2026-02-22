@@ -19,6 +19,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <dwmapi.h>
+#include <winuser.h>
 #include <filesystem>
 #include <string>
 
@@ -249,6 +250,9 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
 
     // Enable drag and drop
     DragAcceptFiles(hwnd, TRUE);
+    ChangeWindowMessageFilterEx(hwnd, WM_DROPFILES, MSGFLT_ALLOW, nullptr);
+    ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
+    ChangeWindowMessageFilterEx(hwnd, 0x0049 /*WM_COPYGLOBALDATA*/, MSGFLT_ALLOW, nullptr);
 
     // Setup ImGui
     IMGUI_CHECKVERSION();
