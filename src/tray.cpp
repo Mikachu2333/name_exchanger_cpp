@@ -17,14 +17,12 @@ void SetupTrayIcon(HWND hwnd) {
     g_nid.hIcon = static_cast<HICON>(
         LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE | LR_SHARED));
     if (!g_nid.hIcon) {
-        g_nid.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512)); // IDI_APPLICATION
+        g_nid.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));  // IDI_APPLICATION
     }
 
-    const auto &locale = GetCurrentLocale();
+    const auto& locale = GetCurrentLocale();
     wcsncpy_s(g_nid.szTip, locale.trayTooltip, _TRUNCATE);
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 }
 
-void RemoveTrayIcon() {
-    Shell_NotifyIconW(NIM_DELETE, &g_nid);
-}
+void RemoveTrayIcon() { Shell_NotifyIconW(NIM_DELETE, &g_nid); }

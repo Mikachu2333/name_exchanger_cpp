@@ -1,6 +1,6 @@
 #include "d3d_helpers.h"
 
-bool CreateDeviceD3D(HWND hWnd, D3DState &state) {
+bool CreateDeviceD3D(HWND hWnd, D3DState& state) {
     DXGI_SWAP_CHAIN_DESC sd = {};
     sd.BufferCount = 2;
     sd.BufferDesc.Width = 0;
@@ -20,10 +20,9 @@ bool CreateDeviceD3D(HWND hWnd, D3DState &state) {
     D3D_FEATURE_LEVEL featureLevel{};
     constexpr D3D_FEATURE_LEVEL featureLevelArray[2] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
 
-    HRESULT res =
-        D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags, featureLevelArray,
-                                      2, D3D11_SDK_VERSION, &sd, &state.swapChain, &state.device, &featureLevel,
-                                      &state.deviceContext);
+    HRESULT res = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags,
+                                                featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &state.swapChain,
+                                                &state.device, &featureLevel, &state.deviceContext);
     if (res == DXGI_ERROR_UNSUPPORTED) {
         // Try WARP software driver if hardware is not available
         res = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, createDeviceFlags,
@@ -38,7 +37,7 @@ bool CreateDeviceD3D(HWND hWnd, D3DState &state) {
     return true;
 }
 
-void CleanupDeviceD3D(D3DState &state) {
+void CleanupDeviceD3D(D3DState& state) {
     CleanupRenderTarget(state);
     if (state.swapChain) {
         state.swapChain->Release();
@@ -54,8 +53,8 @@ void CleanupDeviceD3D(D3DState &state) {
     }
 }
 
-void CreateRenderTarget(D3DState &state) {
-    ID3D11Texture2D *backBuffer = nullptr;
+void CreateRenderTarget(D3DState& state) {
+    ID3D11Texture2D* backBuffer = nullptr;
     state.swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
     if (backBuffer) {
         state.device->CreateRenderTargetView(backBuffer, nullptr, &state.renderTargetView);
@@ -63,7 +62,7 @@ void CreateRenderTarget(D3DState &state) {
     }
 }
 
-void CleanupRenderTarget(D3DState &state) {
+void CleanupRenderTarget(D3DState& state) {
     if (state.renderTargetView) {
         state.renderTargetView->Release();
         state.renderTargetView = nullptr;
