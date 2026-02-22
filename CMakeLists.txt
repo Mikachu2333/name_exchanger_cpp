@@ -52,6 +52,7 @@ if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
 else()
     target_compile_options(${PROJECT_NAME} PRIVATE -finput-charset=UTF-8 -fexec-charset=UTF-8)
+    target_link_options(${PROJECT_NAME} PRIVATE -static)
 endif()
 
 # Link libraries
