@@ -1,12 +1,12 @@
 # name_exchanger
 
-更换两个文件的名字。Exchange two files' name, write by aardio
+更换两个文件的名字。Exchange two files' name, re-write by C++.
 
 ## 直接拖入文件（1个或者2个均可，也可手写文件路径）
 <!--  xxx  -->
 ## Directly drag in files (1 or 2 can be selected, or write file path manually)
 <!--  xxx  -->
-## 使用说明
+## 使用说明/Instruction
 
 拖入文件（夹）即可使用，软件自动常驻任务栏，悬停鼠标于菜单栏图标或点击「问号」图标可获得提示。
 
@@ -16,13 +16,19 @@
 
 ------
 
-拖入文件即可使用，軟體自動保持常駐，懸停鼠標於按鈕上或点击可獲得提示。
+拖入資料（夾）即可使用，軟體自動常駐任務欄，懸停滑鼠於視窗圖示或點擊「問號」圖示可獲得提示。
 
-點擊🛠後可新增功能“右鍵選單-傳送到”，支持直接托拽文件使用。
+點擊「迴紋針」圖示後將添加“右鍵選單-傳送到”，支持不打開直接使用。如果右鍵選單失效，請右鍵點擊「迴紋針」圖標。
 
-如果右鍵選單失效，請右鍵點擊🛠。
+左上角的「圖釘」圖示可設置置頂與否。
 
-右下方⚓/🔱為置頂開關。
+------
+
+Drag in files (or folders) to use, the software will automatically reside in the taskbar. Hover the mouse over the menu bar icon or click the "question mark" icon for tips.
+
+Click the "paperclip" icon to add "Right-click menu - Send to", which supports direct use without opening. If the right-click menu fails, please right-click the "paperclip" icon.
+
+The "pin" icon in the upper left corner can be set to be on top or not.
 
 ## ScreenShot
 
