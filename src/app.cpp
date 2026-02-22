@@ -178,8 +178,9 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
     }
 
     // Check if the executable has .EXE extension and we are not admin
-    wchar_t szPath[MAX_PATH];
-    GetModuleFileNameW(nullptr, szPath, ARRAYSIZE(szPath));
+    std::wstring szPath(32768, L'\0');
+    DWORD len = GetModuleFileNameW(nullptr, szPath.data(), static_cast<DWORD>(szPath.size()));
+    szPath.resize(len);
     std::filesystem::path p(szPath);
     if (p.extension() == L".EXE" && !IsRunAsAdmin()) {
         RunAsAdmin(true);
@@ -432,8 +433,9 @@ void App::RenderUI() {
     ImGui::SetCursorPos(ImVec2(winW - each_width * 4, btnY));
     bool isAdmin = IsRunAsAdmin();
     if (ImGui::Button(isAdmin ? "E" : "D", ImVec2(btnSize, btnSize))) {
-        wchar_t szPath[MAX_PATH];
-        GetModuleFileNameW(nullptr, szPath, ARRAYSIZE(szPath));
+        std::wstring szPath(32768, L'\0');
+        DWORD len = GetModuleFileNameW(nullptr, szPath.data(), static_cast<DWORD>(szPath.size()));
+        szPath.resize(len);
         std::filesystem::path p(szPath);
         if (!isAdmin) {
             std::filesystem::path newPath = p.parent_path() / (p.stem().string() + ".EXE");
@@ -603,11 +605,12 @@ void App::CreateSendToShortcut(bool remove) {
         IShellLinkW* psl = nullptr;
         if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
                                        reinterpret_cast<void**>(&psl)))) {
-            wchar_t exePath[MAX_PATH];
-            GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-            psl->SetPath(exePath);
+            std::wstring exePath(32768, L'\0');
+            DWORD len = GetModuleFileNameW(nullptr, exePath.data(), static_cast<DWORD>(exePath.size()));
+            exePath.resize(len);
+            psl->SetPath(exePath.c_str());
             psl->SetDescription(L"FilenameExchanger");
-            psl->SetIconLocation(exePath, 0);
+            psl->SetIconLocation(exePath.c_str(), 0);
 
             IPersistFile* ppf = nullptr;
             if (SUCCEEDED(psl->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&ppf)))) {
@@ -676,9 +679,11 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
 
             if (count == 1) {
-                wchar_t file[MAX_PATH];
-                DragQueryFileW(hDrop, 0, file, MAX_PATH);
-                std::string u8file = Utf16ToUtf8(file);
+                UINT len = DragQueryFileW(hDrop, 0, nullptr, 0);
+                std::wstring file(len + 1, L'\0');
+                DragQueryFileW(hDrop, 0, file.data(), len + 1);
+                file.resize(len);
+                std::string u8file = Utf16ToUtf8(file.c_str());
 
                 if (path1.empty()) {
                     path1 = u8file;
@@ -689,12 +694,18 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     path2.clear();
                 }
             } else if (count >= 2) {
-                wchar_t file1[MAX_PATH];
-                wchar_t file2[MAX_PATH];
-                DragQueryFileW(hDrop, 0, file1, MAX_PATH);
-                DragQueryFileW(hDrop, 1, file2, MAX_PATH);
-                path1 = Utf16ToUtf8(file1);
-                path2 = Utf16ToUtf8(file2);
+                UINT len1 = DragQueryFileW(hDrop, 0, nullptr, 0);
+                std::wstring file1(len1 + 1, L'\0');
+                DragQueryFileW(hDrop, 0, file1.data(), len1 + 1);
+                file1.resize(len1);
+
+                UINT len2 = DragQueryFileW(hDrop, 1, nullptr, 0);
+                std::wstring file2(len2 + 1, L'\0');
+                DragQueryFileW(hDrop, 1, file2.data(), len2 + 1);
+                file2.resize(len2);
+
+                path1 = Utf16ToUtf8(file1.c_str());
+                path2 = Utf16ToUtf8(file2.c_str());
             }
             DragFinish(hDrop);
             return 0;
