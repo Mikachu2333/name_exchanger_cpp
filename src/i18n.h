@@ -9,7 +9,6 @@ enum class Language {
 
 // All localizable strings used in the UI
 struct LocaleStrings {
-    const char* windowTitle;
     const char* file1Label;
     const char* file2Label;
     const char* startButton;

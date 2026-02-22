@@ -5,7 +5,6 @@
 // clang-format off
 
 static const LocaleStrings kSimplifiedChinese = {
-    /* windowTitle       */  "FilenameExchanger",
     /* file1Label        */  "文件一",
     /* file2Label        */  "文件二",
     /* startButton       */  "启动",
@@ -30,7 +29,6 @@ static const LocaleStrings kSimplifiedChinese = {
 };
 
 static const LocaleStrings kTraditionalChinese = {
-    /* windowTitle       */  "FilenameExchanger",
     /* file1Label        */  "檔案一",
     /* file2Label        */  "檔案二",
     /* startButton       */  "啟動",
@@ -55,7 +53,6 @@ static const LocaleStrings kTraditionalChinese = {
 };
 
 static const LocaleStrings kEnglish = {
-    /* windowTitle       */  "FilenameExchanger",
     /* file1Label        */  "File 1",
     /* file2Label        */  "File 2",
     /* startButton       */  "Exchange",
