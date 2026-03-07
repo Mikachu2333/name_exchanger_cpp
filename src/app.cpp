@@ -13,13 +13,11 @@
 #include "imgui_impl_win32.h"
 
 #include <minwindef.h>
-#include <objbase.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <windows.h>
 #include <algorithm>
 #include <dwmapi.h>
-#include <winuser.h>
 #include <filesystem>
 #include <string>
 
@@ -80,7 +78,7 @@ ImVec4 GetWindowsAccentColor() {
 
 static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam)) {
-        return true;
+        return TRUE;
     }
     return GetApp().HandleMessage(hWnd, msg, wParam, lParam);
 }
@@ -221,6 +219,8 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
                            nullptr, nullptr, hInstance, nullptr);
 
     if (!hwnd) {
+        UnregisterClassW(wc.lpszClassName, hInstance);
+        CoUninitialize();
         return false;
     }
 
@@ -233,7 +233,10 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
     // Initialize Direct3D
     if (!CreateDeviceD3D(hwnd, d3d)) {
         CleanupDeviceD3D(d3d);
+        DestroyWindow(hwnd);
+        hwnd = nullptr;
         UnregisterClassW(wc.lpszClassName, hInstance);
+        CoUninitialize();
         return false;
     }
 
@@ -442,14 +445,14 @@ void App::RenderUI() {
         szPath.resize(len);
         std::filesystem::path p(szPath);
         if (!isAdmin) {
-            std::filesystem::path newPath = p.parent_path() / (p.stem().string() + ".EXE");
+            std::filesystem::path newPath = p.parent_path() / (p.stem().wstring() + L".EXE");
             std::filesystem::rename(p, newPath);
             if (!RunAsAdmin(true)) {
                 std::filesystem::rename(newPath, p);
                 MessageBoxW(hwnd, L"Failed to elevate privileges.", L"Error", MB_OK | MB_ICONERROR);
             }
         } else {
-            std::filesystem::path newPath = p.parent_path() / (p.stem().string() + ".exe");
+            std::filesystem::path newPath = p.parent_path() / (p.stem().wstring() + L".exe");
             std::filesystem::rename(p, newPath);
             if (!RunAsAdmin(false)) {
                 std::filesystem::rename(newPath, p);
@@ -575,11 +578,11 @@ void App::RenderUI() {
     ImGui::SetCursorPos(ImVec2((winW - btnW) / 2.0f, 180 * s));
     if (ImGui::Button(L.startButton, ImVec2(btnW, btnH2))) {
         int returnId = exchange(path1.c_str(), path2.c_str());
-        const char* info = GetOutputInfo(returnId);
         if (returnId == 0) {
             path1.clear();
             path2.clear();
         } else {
+            const char* info = GetOutputInfo(returnId);
             std::wstring winfo = Utf8ToUtf16(info);
             MessageBoxW(hwnd, winfo.c_str(), L.errorTitle, MB_OK | MB_ICONERROR);
         }
@@ -687,7 +690,7 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 std::wstring file(len + 1, L'\0');
                 DragQueryFileW(hDrop, 0, file.data(), len + 1);
                 file.resize(len);
-                std::string u8file = Utf16ToUtf8(file.c_str());
+                std::string u8file = Utf16ToUtf8(file);
 
                 if (path1.empty()) {
                     path1 = u8file;
@@ -708,8 +711,8 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 DragQueryFileW(hDrop, 1, file2.data(), len2 + 1);
                 file2.resize(len2);
 
-                path1 = Utf16ToUtf8(file1.c_str());
-                path2 = Utf16ToUtf8(file2.c_str());
+                path1 = Utf16ToUtf8(file1);
+                path2 = Utf16ToUtf8(file2);
             }
             DragFinish(hDrop);
             return 0;
@@ -744,4 +747,4 @@ auto App::LoadMsyhFont(ImGuiIO& io, float size) -> ImFont* {
     ImFontConfig cfg;
     cfg.SizePixels = size;
     return io.Fonts->AddFontDefault(&cfg);
-};
+}
