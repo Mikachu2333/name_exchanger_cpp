@@ -1,39 +1,49 @@
-# name_exchanger
+# name_exchanger (C++)
 
-更换两个文件的名字。Exchange two files' name, re-write by C++.
+语言：中文（默认） | [English](./README.en.md)
 
-## 直接拖入文件（1个或者2个均可，也可手写文件路径）
-<!--  xxx  -->
-## Directly drag in files (1 or 2 can be selected, or write file path manually)
-<!--  xxx  -->
-## 使用说明/Instruction
+## 简体中文
 
-拖入文件（夹）即可使用，软件自动常驻任务栏，悬停鼠标于菜单栏图标或点击「问号」图标可获得提示。
+一个用于交换两个文件或目录名称的 Windows 小工具（C++ & ImGui）。
 
-点击「曲别针」图标后将添加“右键菜单-发送到”，支持不打开直接使用。如果右键菜单失效，请右键点击「曲别针」图标。
+### 主要功能
 
-左上角的「图钉」图标可设置置顶与否。
+- 支持拖入 1 个或 2 个文件/文件夹，也支持手动输入路径。
+- 支持两种交换模式：
+  - 保留扩展名（仅交换主文件名）
+  - 完整交换文件名（包含扩展名）
+- 支持托盘常驻：左键显示/隐藏窗口，右键退出。
+- 支持窗口置顶。
+- 支持创建/删除“发送到”快捷方式（左键创建，右键删除）。
+- 支持切换管理员权限。
 
-------
+<!-- test -->
 
-拖入資料（夾）即可使用，軟體自動常駐任務欄，懸停滑鼠於視窗圖示或點擊「問號」圖示可獲得提示。
+- 支援拖入 1 個或 2 個檔案/資料夾，也支持手動輸入路徑。
+- 支援兩種交換模式：
+  - 保留副檔名（僅交換主檔名）
+  - 完整交換檔名（包含副檔名）
+- 支援任務欄常駐：左鍵顯示/隱藏視窗，右鍵退出。
+- 支援視窗置頂。
+- 支援新增/刪除“傳送到”快捷方式（左鍵新增，右鍵刪除）。
+- 支援切換管理員權限。
 
-點擊「迴紋針」圖示後將添加“右鍵選單-傳送到”，支持不打開直接使用。如果右鍵選單失效，請右鍵點擊「迴紋針」圖標。
+### 命令行用法
 
-左上角的「圖釘」圖示是置頂開關。
+```text
+name_exchanger <path1> <path2> [preserve]
+```
 
-------
+`preserve` 为可选参数，默认 `true`（保留扩展名），可选 `false`（完整交换文件名）。
+<!-- test -->
+`preserve` 為可選參數，默認 `true`（保留副檔名），可選 `false`（完整交換檔名）。
 
-Drag in files (or folders) to use, the software will automatically reside in the taskbar. Hover the mouse over the menu bar icon or click the "question mark" icon for tips.
+### 截图
 
-Click the "paperclip" icon to add "Right-click menu - Send to", which supports direct use without opening. If the right-click menu fails, please right-click the "paperclip" icon.
+|简体|繁體|
+|---|---|
+|![screenshot](./zh_cn.png)|![screenshot](./zh_tw.png)|
 
-The "pin" icon in the upper left corner can be set to be on top or not.
+### 相关库
 
-## ScreenShot
-
-![example](./PixPin_2026-02-20_23-10-00.png)
-
-## Lib
-
-[https://github.com/Mikachu2333/exchange_name_lib](https://github.com/Mikachu2333/exchange_name_lib)
+- [exchange_name_lib](https://github.com/Mikachu2333/exchange_name_lib)

@@ -11,6 +11,8 @@ enum class Language {
 struct LocaleStrings {
     const char* file1Label;
     const char* file2Label;
+    const char* preserveExtLabel;
+    const char* swapFullNameLabel;
     const char* startButton;
     const char* pinTooltip;
     const wchar_t* aboutTooltip;
@@ -23,6 +25,8 @@ struct LocaleStrings {
     const wchar_t* tipsTitle;
     const wchar_t* errorTitle;
     const wchar_t* warningTitle;
+    const wchar_t* cmdErrorPrefix;
+    const wchar_t* cmdUsage;
 
     // Result messages
     const char* resultSuccess;

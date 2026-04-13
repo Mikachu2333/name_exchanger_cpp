@@ -17,12 +17,13 @@
 #include <shlobj.h>
 #include <windows.h>
 #include <algorithm>
+#include <cctype>
 #include <dwmapi.h>
 #include <filesystem>
 #include <string>
 
 // External function from the Rust library
-extern "C" int exchange(const char* path1, const char* path2);
+extern "C" int exchange(const char* path1, const char* path2, bool preserve_ext);
 
 // Forward declaration for ImGui Win32 handler
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -73,6 +74,69 @@ ImVec4 GetWindowsAccentColor() {
         return ImVec4(((argb >> 16) & 0xFF) / 255.0f, ((argb >> 8) & 0xFF) / 255.0f, (argb & 0xFF) / 255.0f, 1.0f);
     }
     return ToImVec4(GetSysColor(COLOR_HIGHLIGHT));
+}
+
+bool WriteWideTextToStderr(const std::wstring& text) {
+    HANDLE hErr = GetStdHandle(STD_ERROR_HANDLE);
+    if (hErr == nullptr || hErr == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    DWORD mode = 0;
+    if (GetConsoleMode(hErr, &mode) != 0) {
+        DWORD written = 0;
+        return WriteConsoleW(hErr, text.c_str(), static_cast<DWORD>(text.size()), &written, nullptr) != 0;
+    }
+
+    const int utf8Size =
+        WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+    if (utf8Size <= 0) {
+        return false;
+    }
+
+    std::string utf8(static_cast<size_t>(utf8Size), '\0');
+    const int converted = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), utf8.data(),
+                                              utf8Size, nullptr, nullptr);
+    if (converted <= 0) {
+        return false;
+    }
+
+    DWORD written = 0;
+    return WriteFile(hErr, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr) != 0;
+}
+
+void PrintCommandLineUsageToConsole(const std::wstring& message) {
+    const std::wstring output = message + L"\r\n";
+    if (WriteWideTextToStderr(output)) {
+        return;
+    }
+
+    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+        WriteWideTextToStderr(output);
+        FreeConsole();
+    }
+}
+
+bool ParsePreserveFlag(const wchar_t* rawFlag) {
+    std::string flag = Utf16ToUtf8(rawFlag ? rawFlag : L"");
+    std::transform(flag.begin(), flag.end(), flag.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+
+    if (flag == "f" || flag == "false" || flag == "n" || flag == "0") {
+        return false;
+    }
+    return true;
+}
+
+void ShowCommandLineUsageOnError(int returnId) {
+    if (returnId == 0) {
+        return;
+    }
+
+    const auto& L = GetCurrentLocale();
+    std::wstring errorText = Utf8ToUtf16(GetOutputInfo(returnId));
+    std::wstring message = std::wstring(L.cmdErrorPrefix) + errorText + L"\n\n" + L.cmdUsage;
+    PrintCommandLineUsageToConsole(message);
 }
 }  // namespace
 
@@ -168,11 +232,19 @@ void App::ApplySystemTheme() {
 }
 
 bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
-    // Command line mode: 2 args → exchange and exit
+    // Command line mode: 2/3 args → exchange and exit
     if (argc == 3) {
         std::string p1 = Utf16ToUtf8(argv[1]);
         std::string p2 = Utf16ToUtf8(argv[2]);
-        exchange(p1.c_str(), p2.c_str());
+        const int returnId = exchange(p1.c_str(), p2.c_str(), true);
+        ShowCommandLineUsageOnError(returnId);
+        return false;  // Signal to exit
+    } else if (argc == 4) {
+        std::string p1 = Utf16ToUtf8(argv[1]);
+        std::string p2 = Utf16ToUtf8(argv[2]);
+        const bool preserve = ParsePreserveFlag(argv[3]);
+        const int returnId = exchange(p1.c_str(), p2.c_str(), preserve);
+        ShowCommandLineUsageOnError(returnId);
         return false;  // Signal to exit
     }
 
@@ -269,7 +341,7 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(d3d.device, d3d.deviceContext);
 
-    // Load fonts with Chinese support
+    // Load fonts
 
     // Default font
     LoadMsyhFont(io, 16.0f * dpiScale);
@@ -549,7 +621,7 @@ void App::RenderUI() {
 
     // Label 2 (font 10pt, height 17, left-aligned)
     if (fontLabel) ImGui::PushFont(fontLabel);
-    ImGui::SetCursorPos(ImVec2(contentX, 110 * s));
+    ImGui::SetCursorPos(ImVec2(contentX, 100 * s));
     ImGui::Text("%s", L.file2Label);
     if (fontLabel) ImGui::PopFont();
 
@@ -557,7 +629,7 @@ void App::RenderUI() {
     if (fontInput) ImGui::PushFont(fontInput);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
-    ImGui::SetCursorPos(ImVec2(contentX, 130 * s));
+    ImGui::SetCursorPos(ImVec2(contentX, 120 * s));
 
     const float path2TextW = ImGui::CalcTextSize(path2.c_str()).x;
     const float path2InnerW = (std::max)(inputWidth, path2TextW + 24.0f * s);
@@ -571,13 +643,29 @@ void App::RenderUI() {
     ImGui::PopStyleVar(2);
     if (fontInput) ImGui::PopFont();
 
+    const float optionY = 160.0f * s;
+    const float startBtnY = 190.0f * s;
+
+    if (fontLabel) ImGui::PushFont(fontLabel);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f * s, 1.0f * s));
+    ImGui::SetCursorPos(ImVec2(contentX, optionY));
+    if (ImGui::RadioButton(L.preserveExtLabel, preserveExt)) {
+        preserveExt = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton(L.swapFullNameLabel, !preserveExt)) {
+        preserveExt = false;
+    }
+    ImGui::PopStyleVar();
+    if (fontLabel) ImGui::PopFont();
+
     // Exchange button (font 20pt)
     if (fontStartBtn) ImGui::PushFont(fontStartBtn);
     float btnW = 124 * s;
-    float btnH2 = 48 * s;
-    ImGui::SetCursorPos(ImVec2((winW - btnW) / 2.0f, 180 * s));
+    float btnH2 = 44 * s;
+    ImGui::SetCursorPos(ImVec2((winW - btnW) / 2.0f, startBtnY));
     if (ImGui::Button(L.startButton, ImVec2(btnW, btnH2))) {
-        int returnId = exchange(path1.c_str(), path2.c_str());
+        int returnId = exchange(path1.c_str(), path2.c_str(), preserveExt);
         if (returnId == 0) {
             path1.clear();
             path2.clear();

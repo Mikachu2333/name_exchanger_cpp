@@ -12,6 +12,7 @@ struct ImFont;
 struct App {
     std::string path1 = "";
     std::string path2 = "";
+    bool preserveExt = true;
 
     bool isTopmost = true;
     bool showWindow = true;
