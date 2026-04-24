@@ -342,11 +342,6 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
     ImGui_ImplDX11_Init(d3d.device, d3d.deviceContext);
 
     // Load fonts
-
-    // Default font
-    LoadMsyhFont(io, 16.0f * dpiScale);
-
-    // Label font (16pt)
     fontLabel = LoadMsyhFont(io, 16.0f * dpiScale);
 
     // Input font (15pt)
@@ -755,7 +750,6 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ImGuiIO& io = ImGui::GetIO();
             io.Fonts->Clear();
 
-            LoadMsyhFont(io, 16.0f * dpiScale);
             fontLabel = LoadMsyhFont(io, 16.0f * dpiScale);
             fontInput = LoadMsyhFont(io, 15.0f * dpiScale);
             fontStartBtn = LoadMsyhFont(io, 24.0f * dpiScale);

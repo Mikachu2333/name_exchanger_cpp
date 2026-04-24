@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.1.0)
-project(NameExchanger VERSION 1.0.0 LANGUAGES CXX C)
+project(NameExchanger VERSION 1.0.1 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,6 +63,7 @@ endif()
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/name_exchanger${ARCH_SUFFIX}.lib
+    ntdll
     d3d11
     d3dcompiler
     dxgi
@@ -73,10 +74,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     gdi32
     advapi32
     ole32
-    ntdll
-    ws2_32
-    userenv
-    bcrypt
 )
 
 # Set output name

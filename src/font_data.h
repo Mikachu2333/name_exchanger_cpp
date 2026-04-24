@@ -160,4 +160,4 @@ static const unsigned char kIconFontData[] = {
 };
 // clang-format on
 
-static const size_t kIconFontDataSize = 2408;
+static const size_t kIconFontDataSize = sizeof(kIconFontData);

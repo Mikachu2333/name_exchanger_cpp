@@ -54,6 +54,10 @@ void CleanupDeviceD3D(D3DState& state) {
 }
 
 void CreateRenderTarget(D3DState& state) {
+    if (state.renderTargetView) {
+        state.renderTargetView->Release();
+        state.renderTargetView = nullptr;
+    }
     ID3D11Texture2D* backBuffer = nullptr;
     state.swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
     if (backBuffer) {

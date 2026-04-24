@@ -86,10 +86,12 @@ static bool LaunchUnelevatedViaExplorer(const wchar_t* exePath) {
 extern HANDLE g_hMutex;
 
 bool RunAsAdmin(bool privilege) {
-    wchar_t szPath[1024];
-    if (!GetModuleFileNameW(nullptr, szPath, ARRAYSIZE(szPath))) {
+    std::wstring szPath(32768, L'\0');
+    DWORD len = GetModuleFileNameW(nullptr, szPath.data(), static_cast<DWORD>(szPath.size()));
+    if (len == 0) {
         return false;
     }
+    szPath.resize(len);
 
     // Release the mutex so the new elevated instance can start
     if (g_hMutex) {
@@ -102,14 +104,14 @@ bool RunAsAdmin(bool privilege) {
         SHELLEXECUTEINFOW sei = {};
         sei.cbSize = sizeof(sei);
         sei.lpVerb = L"runas";
-        sei.lpFile = szPath;
+        sei.lpFile = szPath.c_str();
         sei.hwnd = nullptr;
         sei.nShow = SW_NORMAL;
         if (ShellExecuteExW(&sei)) {
             ExitProcess(0);
         }
     } else {
-        if (LaunchUnelevatedViaExplorer(szPath)) {
+        if (LaunchUnelevatedViaExplorer(szPath.c_str())) {
             ExitProcess(0);
         }
     }

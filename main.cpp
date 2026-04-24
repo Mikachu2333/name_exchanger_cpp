@@ -12,14 +12,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*l
 
     // Mutex to prevent multiple instances
     g_hMutex = CreateMutexW(nullptr, TRUE, PROCESS_MUTEX_GUID);
+    if (!g_hMutex) {
+        LocalFree(argv);
+        return 1;
+    }
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        // Wait up to 1 second for the previous instance to exit (e.g. during RunAsAdmin)
         DWORD waitRes = WaitForSingleObject(g_hMutex, 1000);
-        if (waitRes == WAIT_TIMEOUT) {
-            HWND existingApp = FindWindowW(L"NameExchangerClass", L"FilenameExchanger");
-            if (existingApp) {
-                ShowWindow(existingApp, SW_RESTORE);
-                SetForegroundWindow(existingApp);
+        if (waitRes == WAIT_TIMEOUT || waitRes == WAIT_FAILED) {
+            if (waitRes == WAIT_TIMEOUT) {
+                HWND existingApp = FindWindowW(L"NameExchangerClass", L"FilenameExchanger");
+                if (existingApp) {
+                    ShowWindow(existingApp, SW_RESTORE);
+                    SetForegroundWindow(existingApp);
+                }
             }
             LocalFree(argv);
             CloseHandle(g_hMutex);
