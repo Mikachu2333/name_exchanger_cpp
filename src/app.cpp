@@ -12,7 +12,6 @@
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
-#include <minwindef.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <windows.h>
@@ -137,6 +136,22 @@ void ShowCommandLineUsageOnError(int returnId) {
     std::wstring errorText = Utf8ToUtf16(GetOutputInfo(returnId));
     std::wstring message = std::wstring(L.cmdErrorPrefix) + errorText + L"\n\n" + L.cmdUsage;
     PrintCommandLineUsageToConsole(message);
+}
+
+// Rename the executable's extension reliably via a two-step rename through an intermediate
+// extension, avoiding NTFS case-insensitive same-file issues where rename(".exe", ".EXE") may
+// be a no-op. On failure ec is set and the file is rolled back to its original name.
+void RenameExeToExtension(const std::filesystem::path& exePath, const std::wstring& targetExt, std::error_code& ec) {
+    const std::filesystem::path tmpPath = exePath.parent_path() / (exePath.stem().wstring() + L"._exch_tmp_");
+    ec.clear();
+    std::filesystem::rename(exePath, tmpPath, ec);
+    if (ec) return;
+    const std::filesystem::path finalPath = exePath.parent_path() / (exePath.stem().wstring() + targetExt);
+    std::filesystem::rename(tmpPath, finalPath, ec);
+    if (ec) {
+        std::error_code ignored;
+        std::filesystem::rename(tmpPath, exePath, ignored);
+    }
 }
 }  // namespace
 
@@ -444,7 +459,7 @@ void App::RenderUI() {
     float inputWidth = winW - contentX * 2;
     float each_width = 6 * s + btnSize;
 
-    // Clear input focus when window is inactive (requirement 9)
+    // Clear input focus when window loses foreground
     if (GetForegroundWindow() != hwnd) {
         ImGui::ClearActiveID();
     }
@@ -514,19 +529,23 @@ void App::RenderUI() {
         if (!isAdmin) {
             std::filesystem::path newPath = p.parent_path() / (p.stem().wstring() + L".EXE");
             std::error_code ec;
-            std::filesystem::rename(p, newPath, ec);
-            if (!RunAsAdmin(true)) {
+            RenameExeToExtension(p, L".EXE", ec);
+            if (ec) {
+                MessageBoxW(hwnd, L"Failed to prepare for elevation.", L"Error", MB_OK | MB_ICONERROR);
+            } else if (!RunAsAdmin(true)) {
                 std::error_code ec2;
-                std::filesystem::rename(newPath, p, ec2);
+                RenameExeToExtension(newPath, p.extension().wstring(), ec2);
                 MessageBoxW(hwnd, L"Failed to elevate privileges.", L"Error", MB_OK | MB_ICONERROR);
             }
         } else {
             std::filesystem::path newPath = p.parent_path() / (p.stem().wstring() + L".exe");
             std::error_code ec;
-            std::filesystem::rename(p, newPath, ec);
-            if (!RunAsAdmin(false)) {
+            RenameExeToExtension(p, L".exe", ec);
+            if (ec) {
+                MessageBoxW(hwnd, L"Failed to prepare for dropping privileges.", L"Error", MB_OK | MB_ICONERROR);
+            } else if (!RunAsAdmin(false)) {
                 std::error_code ec2;
-                std::filesystem::rename(newPath, p, ec2);
+                RenameExeToExtension(newPath, p.extension().wstring(), ec2);
                 MessageBoxW(hwnd, L"Failed to drop privileges.", L"Error", MB_OK | MB_ICONERROR);
             }
         }
@@ -594,13 +613,13 @@ void App::RenderUI() {
 
     // === Main Content ===
 
-    // Label 1 (font 10pt, height 17, left-aligned)
+    // Label 1
     if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::SetCursorPos(ImVec2(contentX, 42 * s));
     ImGui::Text("%s", L.file1Label);
     if (fontLabel) ImGui::PopFont();
 
-    // Input 1 (font 14pt, height 28, with border + horizontal scrollbar for long text)
+    // Input 1
     if (fontInput) ImGui::PushFont(fontInput);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
@@ -618,13 +637,13 @@ void App::RenderUI() {
     ImGui::PopStyleVar(2);
     if (fontInput) ImGui::PopFont();
 
-    // Label 2 (font 10pt, height 17, left-aligned)
+    // Label 2
     if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::SetCursorPos(ImVec2(contentX, 100 * s));
     ImGui::Text("%s", L.file2Label);
     if (fontLabel) ImGui::PopFont();
 
-    // Input 2 (font 14pt, height 28, with border + horizontal scrollbar for long text)
+    // Input 2
     if (fontInput) ImGui::PushFont(fontInput);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
@@ -658,7 +677,7 @@ void App::RenderUI() {
     ImGui::PopStyleVar();
     if (fontLabel) ImGui::PopFont();
 
-    // Exchange button (font 20pt)
+    // Exchange button
     if (fontStartBtn) ImGui::PushFont(fontStartBtn);
     float btnW = 124 * s;
     float btnH2 = 44 * s;
