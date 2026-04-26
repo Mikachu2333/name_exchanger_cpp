@@ -73,17 +73,20 @@ endif()
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/name_exchanger${ARCH_SUFFIX}.lib
-    ntdll
+    advapi32
     d3d11
     d3dcompiler
-    dxgi
+    dbghelp
     dwmapi
-    shlwapi
-    shell32
-    user32
+    dxgi
     gdi32
-    advapi32
+    ntdll
     ole32
+    shell32
+    shlwapi
+    user32
+    userenv
+    ws2_32
 )
 
 # Set output name
