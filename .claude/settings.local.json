@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"C:/Program Files \\(x86\\)/Microsoft Visual Studio/18/BuildTools/VC/Auxiliary/Build/vcvars64.bat\")",
+      "Bash(ninja -C build)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/**)",
+      "Read(//c/Program Files \\(x86\\)/Windows Kits/10/Include//**)",
+      "Bash(cmd /c 'call \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\18\\\\BuildTools\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\" >nul 2>&1 && ninja -C build')",
+      "Bash(cmd.exe /c 'call \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\18\\\\BuildTools\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\" && ninja -C build')",
+      "Bash(cmd.exe /c build.bat)",
+      "Bash(powershell.exe -NoProfile -Command 'cmd.exe /c \"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\18\\\\BuildTools\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat > $null && ninja -C build\"')"
+    ]
+  }
+}

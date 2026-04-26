@@ -363,13 +363,13 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
 
 int App::Run() {
     while (!done) {
-        MSG msg;
+        MSG msg{};
         while (PeekMessageW(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
-            if (msg.message == WM_QUIT) {
-                done = true;
-            }
+        }
+        if (msg.message == WM_QUIT) {
+            done = true;
         }
         if (done) {
             break;
@@ -513,16 +513,20 @@ void App::RenderUI() {
         std::filesystem::path p(szPath);
         if (!isAdmin) {
             std::filesystem::path newPath = p.parent_path() / (p.stem().wstring() + L".EXE");
-            std::filesystem::rename(p, newPath);
+            std::error_code ec;
+            std::filesystem::rename(p, newPath, ec);
             if (!RunAsAdmin(true)) {
-                std::filesystem::rename(newPath, p);
+                std::error_code ec2;
+                std::filesystem::rename(newPath, p, ec2);
                 MessageBoxW(hwnd, L"Failed to elevate privileges.", L"Error", MB_OK | MB_ICONERROR);
             }
         } else {
             std::filesystem::path newPath = p.parent_path() / (p.stem().wstring() + L".exe");
-            std::filesystem::rename(p, newPath);
+            std::error_code ec;
+            std::filesystem::rename(p, newPath, ec);
             if (!RunAsAdmin(false)) {
-                std::filesystem::rename(newPath, p);
+                std::error_code ec2;
+                std::filesystem::rename(newPath, p, ec2);
                 MessageBoxW(hwnd, L"Failed to drop privileges.", L"Error", MB_OK | MB_ICONERROR);
             }
         }

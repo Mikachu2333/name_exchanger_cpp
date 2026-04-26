@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.1.0)
-project(NameExchanger VERSION 1.0.1 LANGUAGES CXX C)
+project(NameExchanger VERSION 1.1.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,16 +16,24 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     message(FATAL_ERROR "GNU/MinGW compilers are not supported. Please use MSVC.")
 endif()
 
-# Add ImGui sources
-set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+# Fetch Dear ImGui at configure time (change GIT_TAG to update)
+include(FetchContent)
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY  https://github.com/ocornut/imgui.git
+    GIT_TAG         master
+    GIT_SHALLOW     TRUE
+)
+FetchContent_MakeAvailable(imgui)
+
 set(IMGUI_SOURCES
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/imgui_impl_win32.cpp
-    ${IMGUI_DIR}/imgui_impl_dx11.cpp
-    ${IMGUI_DIR}/imgui_stdlib.cpp
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
 )
 
 # Application sources
@@ -45,7 +53,9 @@ set(RC_FILE ${CMAKE_CURRENT_SOURCE_DIR}/res/res.rc)
 add_executable(${PROJECT_NAME} WIN32 ${APP_SOURCES} ${IMGUI_SOURCES} ${RC_FILE})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${IMGUI_DIR}
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+    ${imgui_SOURCE_DIR}/misc/cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/res
     ${CMAKE_CURRENT_SOURCE_DIR}
 )

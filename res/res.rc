@@ -11,7 +11,7 @@ IDI_APP_ICON ICON "res.ico"
 FILEVERSION     VERSION_INT
 PRODUCTVERSION  VERSION_INT
 FILEOS          VOS__WINDOWS32
-FILETYPE        VFT_STATIC_LIB
+FILETYPE        VFT_APP
 
 BEGIN
     BLOCK "StringFileInfo"
@@ -23,7 +23,7 @@ BEGIN
             VALUE "CompanyName",        "NONE. MIT LICENSE."
             VALUE "FileDescription",    "Exchange names of files(dirs)"
             VALUE "LegalCopyright",     "Mikachu2333 Copyright (C) 2026"
-            VALUE "OriginalFilename",   "exchange.dll"
+            VALUE "OriginalFilename",   "name_exchanger.exe"
             VALUE "ProductName",        "NameExchanger"
         END
     END
