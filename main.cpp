@@ -1,5 +1,5 @@
-#include "src/app.h"
-#include "src/utils.h"
+#include "src/app.hpp"
+#include "src/utils.hpp"
 
 #include <shellapi.h>
 #include <windows.h>

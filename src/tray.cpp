@@ -1,6 +1,6 @@
-#include "tray.h"
+#include "tray.hpp"
 
-#include "i18n.h"
+#include "i18n.hpp"
 
 #include <shellapi.h>
 

@@ -1,10 +1,10 @@
-#include "app.h"
+#include "app.hpp"
 
-#include "d3d_helpers.h"
-#include "font_data.h"
-#include "i18n.h"
-#include "tray.h"
-#include "utils.h"
+#include "d3d_helpers.hpp"
+#include "font_data.hpp"
+#include "i18n.hpp"
+#include "tray.hpp"
+#include "utils.hpp"
 
 #include "imgui.h"
 #include "imgui_internal.h"

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "d3d_helpers.h"
+#include "d3d_helpers.hpp"
 #include "imgui.h"
 #include <string>
 #include <windows.h>

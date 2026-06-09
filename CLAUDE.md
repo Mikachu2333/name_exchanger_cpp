@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build
 
-```
+```pwsh
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
 ```
@@ -28,19 +28,19 @@ extern "C" int exchange(const char* path1, const char* path2, bool preserve_ext)
 
 - **`main.cpp`** — `WinMain` entry point. Enforces single-instance via a named mutex (`CFFD3CF9A003453C9893A8CD49EF7ED5`). If a second instance starts, it finds and activates the existing window instead.
 
-- **`src/app.h` / `src/app.cpp`** — The entire application: window creation, D3D11/ImGui init, the main loop, and the full UI rendering in `RenderUI()`. Uses a `PopTooltip()` / `PopFont()` pattern throughout — each UI element is responsible for popping whatever style/font/color it pushes. Top bar uses custom icon-font "letters" (`A`–`H`) rendered via `kIconFontData` from `font_data.h`; each maps to a toolbar button glyph.
+- **`src/app.hpp` / `src/app.cpp`** — The entire application: window creation, D3D11/ImGui init, the main loop, and the full UI rendering in `RenderUI()`. Uses a `PopTooltip()` / `PopFont()` pattern throughout — each UI element is responsible for popping whatever style/font/color it pushes. Top bar uses custom icon-font "letters" (`A`–`H`) rendered via `kIconFontData` from `font_data.hpp`; each maps to a toolbar button glyph.
 
-- **`src/utils.h` / `src/utils.cpp`** — `Utf16ToUtf8`/`Utf8ToUtf16` converters, `IsRunAsAdmin()`, and `RunAsAdmin()`. `RunAsAdmin` handles privilege escalation via `ShellExecuteEx(runas)` and de-escalation by duplicating explorer's token.
+- **`src/utils.hpp` / `src/utils.cpp`** — `Utf16ToUtf8`/`Utf8ToUtf16` converters, `IsRunAsAdmin()`, and `RunAsAdmin()`. `RunAsAdmin` handles privilege escalation via `ShellExecuteEx(runas)` and de-escalation by duplicating explorer's token.
 
-- **`src/i18n.h` / `src/i18n.cpp`** — Three-language i18n (Simplified Chinese, Traditional Chinese, English). `DetectSystemLanguage()` uses `GetUserDefaultUILanguage()`. All UI strings live in `LocaleStrings` structs; `GetCurrentLocale()` caches detection result.
+- **`src/i18n.hpp` / `src/i18n.cpp`** — Three-language i18n (Simplified Chinese, Traditional Chinese, English). `DetectSystemLanguage()` uses `GetUserDefaultUILanguage()`. All UI strings live in `LocaleStrings` structs; `GetCurrentLocale()` caches detection result.
 
-- **`src/d3d_helpers.h` / `src/d3d_helpers.cpp`** — Thin helpers for D3D11 device/swapchain/render-target lifecycle. Tries hardware device first, falls back to WARP software rasterizer.
+- **`src/d3d_helpers.hpp` / `src/d3d_helpers.cpp`** — Thin helpers for D3D11 device/swapchain/render-target lifecycle. Tries hardware device first, falls back to WARP software rasterizer.
 
-- **`src/tray.h` / `src/tray.cpp`** — System tray icon setup/removal via `Shell_NotifyIconW`. Tray messages arrive as `WM_USER + 1` and are handled in `HandleMessage`.
+- **`src/tray.hpp` / `src/tray.cpp`** — System tray icon setup/removal via `Shell_NotifyIconW`. Tray messages arrive as `WM_USER + 1` and are handled in `HandleMessage`.
 
-- **`src/font_data.h`** — Auto-generated binary blob from a custom TTF icon font. The `kIconFontData` array is loaded as an ImGui memory font at 15pt.
+- **`src/font_data.hpp`** — Auto-generated binary blob from a custom TTF icon font. The `kIconFontData` array is loaded as an ImGui memory font at 15pt.
 
-- **`res/`** — Windows resource files: icon, version info (currently `3.1.1`), and `version.h`.
+- **`res/`** — Windows resource files: icon, version info (currently `3.1.1`), and `version.hpp`.
 
 ## UI behavior notes
 

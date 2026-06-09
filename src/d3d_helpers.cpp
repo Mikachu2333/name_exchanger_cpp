@@ -1,4 +1,4 @@
-#include "d3d_helpers.h"
+#include "d3d_helpers.hpp"
 
 bool CreateDeviceD3D(HWND hWnd, D3DState& state) {
     DXGI_SWAP_CHAIN_DESC sd = {};

@@ -1,5 +1,5 @@
 #include <windows.h>
-#include "version.h"
+#include "version.hpp"
 
 // Define icon resource ID (used by LoadImage in code)
 #define IDI_APP_ICON 101
