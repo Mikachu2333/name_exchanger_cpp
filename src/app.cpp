@@ -615,13 +615,18 @@ void App::RenderUI() {
     ImGui::Text("%s", L.file1Label);
     if (fontLabel) ImGui::PopFont();
 
-    // InputText handles horizontal scrolling itself; an extra child window is unnecessary.
+    // Keep an explicit horizontal scrollbar for long paths.
     if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
     ImGui::SetCursorPos(ImVec2(contentX, 62 * s));
-    ImGui::SetNextItemWidth(inputWidth);
+    const float path1InnerWidth = (std::max)(inputWidth, ImGui::CalcTextSize(path1.c_str()).x + 24.0f * s);
+    const float pathChildHeight = 28.0f * s + ImGui::GetStyle().ScrollbarSize;
+    ImGui::BeginChild("##path1_scroll", ImVec2(inputWidth, pathChildHeight), false,
+                      ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
+    ImGui::SetNextItemWidth(path1InnerWidth);
     ImGui::InputText("##path1", &path1);
+    ImGui::EndChild();
     ImGui::PopStyleVar(2);
     if (fontLabel) ImGui::PopFont();
 
@@ -636,8 +641,12 @@ void App::RenderUI() {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
     ImGui::SetCursorPos(ImVec2(contentX, 120 * s));
-    ImGui::SetNextItemWidth(inputWidth);
+    const float path2InnerWidth = (std::max)(inputWidth, ImGui::CalcTextSize(path2.c_str()).x + 24.0f * s);
+    ImGui::BeginChild("##path2_scroll", ImVec2(inputWidth, pathChildHeight), false,
+                      ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
+    ImGui::SetNextItemWidth(path2InnerWidth);
     ImGui::InputText("##path2", &path2);
+    ImGui::EndChild();
     ImGui::PopStyleVar(2);
     if (fontLabel) ImGui::PopFont();
 

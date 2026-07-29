@@ -2,7 +2,9 @@
 
 #include <shellapi.h>
 
+#include <filesystem>
 #include <limits>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -72,6 +74,83 @@ bool IsRunAsAdmin() {
 }
 
 namespace {
+struct RenameResult {
+    bool success = false;
+    std::wstring originalPath;
+    std::wstring renamedPath;
+};
+
+bool EqualsOrdinal(std::wstring_view first, std::wstring_view second, bool ignoreCase) {
+    if (first.size() != second.size()) return false;
+    if (first.empty()) return true;
+    return CompareStringOrdinal(first.data(), static_cast<int>(first.size()), second.data(), static_cast<int>(second.size()),
+                                ignoreCase ? TRUE : FALSE) == CSTR_EQUAL;
+}
+
+RenameResult RenameExecutableForMode(bool adminMode) {
+    RenameResult result;
+    result.originalPath = GetExecutablePath();
+    if (result.originalPath.empty()) return result;
+
+    const std::filesystem::path original(result.originalPath);
+    const std::wstring extension = original.extension().wstring();
+    if (!EqualsOrdinal(extension, L".exe", true)) return result;
+
+    const std::wstring targetExtension = adminMode ? L".EXE" : L".exe";
+    result.renamedPath = (original.parent_path() / (original.stem().wstring() + targetExtension)).wstring();
+    if (extension == targetExtension) {
+        result.success = true;
+        return result;
+    }
+
+    // A same-name case-only rename is not reliable on case-insensitive filesystems. Use a unique
+    // intermediate in the same directory so every move remains within one filesystem.
+    std::filesystem::path temporary;
+    for (unsigned attempt = 0; attempt < 32; ++attempt) {
+        temporary = original.parent_path() /
+                    (original.filename().wstring() + L".__mode_" + std::to_wstring(GetCurrentProcessId()) + L"_" +
+                     std::to_wstring(GetTickCount64()) + L"_" + std::to_wstring(attempt));
+        if (GetFileAttributesW(temporary.c_str()) == INVALID_FILE_ATTRIBUTES && GetLastError() == ERROR_FILE_NOT_FOUND) {
+            break;
+        }
+        temporary.clear();
+    }
+    if (temporary.empty()) return result;
+
+    if (!MoveFileExW(result.originalPath.c_str(), temporary.c_str(), MOVEFILE_WRITE_THROUGH)) return result;
+    if (MoveFileExW(temporary.c_str(), result.renamedPath.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        result.success = true;
+        return result;
+    }
+
+    // Best-effort rollback. If this fails the temporary path intentionally remains discoverable.
+    MoveFileExW(temporary.c_str(), result.originalPath.c_str(), MOVEFILE_WRITE_THROUGH);
+    return result;
+}
+
+bool RestoreExecutableName(const RenameResult& rename) {
+    if (rename.originalPath == rename.renamedPath) return true;
+
+    const std::filesystem::path renamed(rename.renamedPath);
+    std::filesystem::path temporary;
+    for (unsigned attempt = 0; attempt < 32; ++attempt) {
+        temporary = renamed.parent_path() /
+                    (renamed.filename().wstring() + L".__rollback_" + std::to_wstring(GetCurrentProcessId()) + L"_" +
+                     std::to_wstring(GetTickCount64()) + L"_" + std::to_wstring(attempt));
+        if (GetFileAttributesW(temporary.c_str()) == INVALID_FILE_ATTRIBUTES && GetLastError() == ERROR_FILE_NOT_FOUND) {
+            break;
+        }
+        temporary.clear();
+    }
+    if (temporary.empty()) return false;
+    if (!MoveFileExW(rename.renamedPath.c_str(), temporary.c_str(), MOVEFILE_WRITE_THROUGH)) return false;
+    if (MoveFileExW(temporary.c_str(), rename.originalPath.c_str(), MOVEFILE_WRITE_THROUGH)) return true;
+
+    // Preserve an executable at the selected mode name if restoring the original spelling fails.
+    MoveFileExW(temporary.c_str(), rename.renamedPath.c_str(), MOVEFILE_WRITE_THROUGH);
+    return false;
+}
+
 bool LaunchUnelevatedViaExplorer(const std::wstring& exePath) {
     const HWND shellWindow = GetShellWindow();
     if (!shellWindow) return false;
@@ -111,24 +190,31 @@ bool LaunchUnelevatedViaExplorer(const std::wstring& exePath) {
 }
 }
 
-bool RunAsAdmin(bool privilege) {
+bool IsAdminModePreferred() {
     const std::wstring executable = GetExecutablePath();
     if (executable.empty()) return false;
+    return std::filesystem::path(executable).extension().wstring() == L".EXE";
+}
 
+bool RunAsAdmin(bool privilege) {
+    const RenameResult rename = RenameExecutableForMode(privilege);
+    if (!rename.success) return false;
+
+    bool launched = false;
     if (privilege) {
         SHELLEXECUTEINFOW execute{};
         execute.cbSize = sizeof(execute);
         execute.fMask = SEE_MASK_NOCLOSEPROCESS;
         execute.lpVerb = L"runas";
-        execute.lpFile = executable.c_str();
+        execute.lpFile = rename.renamedPath.c_str();
         execute.lpParameters = L"--gui-relaunch";
         execute.nShow = SW_NORMAL;
-        if (!ShellExecuteExW(&execute)) return false;
+        launched = ShellExecuteExW(&execute) != FALSE;
         if (execute.hProcess) CloseHandle(execute.hProcess);
-    } else if (!LaunchUnelevatedViaExplorer(executable)) {
-        return false;
+    } else {
+        launched = LaunchUnelevatedViaExplorer(rename.renamedPath);
     }
 
-    // Let the normal main loop perform orderly cleanup. The caller closes the old instance.
-    return true;
+    if (!launched) RestoreExecutableName(rename);
+    return launched;
 }

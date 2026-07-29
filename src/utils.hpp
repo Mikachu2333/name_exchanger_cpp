@@ -12,8 +12,13 @@ std::wstring Utf8ToUtf16(const std::string& str);
 // Return the complete executable path, or an empty path on failure/truncation.
 std::wstring GetExecutablePath();
 
-// Check if the current process is running as administrator
+// Check if the current process is running as administrator.
 bool IsRunAsAdmin();
 
-// Relaunch the current process with admin privileges (UAC prompt)
+// The executable extension stores the preferred mode: .EXE = administrator, .exe = standard.
+// Returns the current preference, or false when the executable does not have an exe extension.
+bool IsAdminModePreferred();
+
+// Persist the requested mode by changing the executable extension case, then relaunch.
+// A failed launch attempts to restore the original executable name.
 bool RunAsAdmin(bool privilege);

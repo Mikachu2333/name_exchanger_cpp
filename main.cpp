@@ -51,8 +51,16 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
 
     const bool guiRelaunch = arguments.count() == 2 && arguments.data()[1] &&
                              std::wcscmp(arguments.data()[1], L"--gui-relaunch") == 0;
-    // CLI invocations must not be blocked by an already running GUI instance.
+    // CLI invocations must not be blocked by an already running GUI instance or inherit its
+    // remembered elevation preference.
     if (arguments.count() > 1 && !guiRelaunch) return App::RunCommandLine(arguments.count(), arguments.data());
+
+    // Extension case is the persistent mode flag. Enforce it before acquiring the single-instance
+    // mutex so the replacement process does not have to wait for a half-initialized instance.
+    if (!guiRelaunch) {
+        const bool preferredAdminMode = IsAdminModePreferred();
+        if (preferredAdminMode != IsRunAsAdmin()) return RunAsAdmin(preferredAdminMode) ? 0 : 1;
+    }
 
     UniqueHandle instanceMutex(CreateMutexW(nullptr, TRUE, PROCESS_MUTEX_GUID));
     if (!instanceMutex.get()) return 1;
