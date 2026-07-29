@@ -44,7 +44,7 @@ set(APP_SOURCES
     src/i18n.cpp
     src/tray.cpp
     src/utils.cpp
-    src/exchange_name_lib.h
+    src/exchange_name_lib.hpp
 )
 
 # Add resource file
