@@ -35,6 +35,8 @@ struct LocaleStrings {
     const char* resultAlreadyExists;
     const char* resultSameFile;
     const char* resultInvalidPath;
+    const char* resultUnsupportedType;
+    const char* resultRollbackFailed;
     const char* resultUnknown;
 };
 

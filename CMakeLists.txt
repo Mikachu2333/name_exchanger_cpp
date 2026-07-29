@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.1.0)
-project(NameExchanger VERSION 1.1.1 LANGUAGES CXX C)
+project(NameExchanger VERSION 3.1.3 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,6 +44,7 @@ set(APP_SOURCES
     src/i18n.cpp
     src/tray.cpp
     src/utils.cpp
+    src/exchange_name_lib.h
 )
 
 # Add resource file
@@ -62,7 +63,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # Ensure UTF-8 source encoding for all compilers
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
+    target_compile_options(${PROJECT_NAME} PRIVATE /utf-8 /W4 /permissive- /EHsc)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 endif()
 
 # Use static CRT for MSVC in Release (/MT), dynamic in Debug (/MDd)
@@ -90,4 +92,4 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 # Set output name
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "name_exchanger${COMPILER_SUFFIX}${ARCH_SUFFIX}")
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "name_exchanger${ARCH_SUFFIX}")

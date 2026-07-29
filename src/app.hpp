@@ -20,6 +20,7 @@ struct App {
 
     HWND hwnd = nullptr;
     D3DState d3d = {};
+    bool comInitialized = false;
 
     // DPI scaling
     float dpiScale = 1.0f;
@@ -39,8 +40,11 @@ struct App {
     ImVec4 tooltipBgColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
     ImVec4 tooltipTextColor = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);
 
-    // Initialize the application (create window, D3D, ImGui, tray)
-    bool Init(HINSTANCE hInstance, int argc, wchar_t** argv);
+    // Execute CLI mode and return a process exit code.
+    static int RunCommandLine(int argc, wchar_t** argv);
+
+    // Initialize the GUI application (create window, D3D, ImGui, tray).
+    bool Init(HINSTANCE hInstance);
 
     // Run the main loop
     int Run();

@@ -4,53 +4,76 @@
 #include <shellapi.h>
 #include <windows.h>
 
-HANDLE g_hMutex = nullptr;
+#include <cwchar>
 
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpCmdLine*/, int /*nCmdShow*/) {
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-
-    // Mutex to prevent multiple instances
-    g_hMutex = CreateMutexW(nullptr, TRUE, PROCESS_MUTEX_GUID);
-    if (!g_hMutex) {
-        LocalFree(argv);
-        return 1;
+namespace {
+class LocalArgv final {
+  public:
+    LocalArgv() : data_(CommandLineToArgvW(GetCommandLineW(), &count_)) {}
+    ~LocalArgv() {
+        if (data_) LocalFree(data_);
     }
+    LocalArgv(const LocalArgv&) = delete;
+    LocalArgv& operator=(const LocalArgv&) = delete;
+
+    [[nodiscard]] bool valid() const noexcept { return data_ != nullptr; }
+    [[nodiscard]] int count() const noexcept { return count_; }
+    [[nodiscard]] wchar_t** data() const noexcept { return data_; }
+
+  private:
+    int count_ = 0;
+    wchar_t** data_ = nullptr;
+};
+
+class UniqueHandle final {
+  public:
+    explicit UniqueHandle(HANDLE value = nullptr) noexcept : value_(value) {}
+    ~UniqueHandle() {
+        if (value_) {
+            if (ownsMutex_) ReleaseMutex(value_);
+            CloseHandle(value_);
+        }
+    }
+    UniqueHandle(const UniqueHandle&) = delete;
+    UniqueHandle& operator=(const UniqueHandle&) = delete;
+    [[nodiscard]] HANDLE get() const noexcept { return value_; }
+    void setOwnsMutex(bool value) noexcept { ownsMutex_ = value; }
+
+  private:
+    HANDLE value_;
+    bool ownsMutex_ = false;
+};
+}
+
+int APIENTRY WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
+    LocalArgv arguments;
+    if (!arguments.valid()) return 255;
+
+    const bool guiRelaunch = arguments.count() == 2 && arguments.data()[1] &&
+                             std::wcscmp(arguments.data()[1], L"--gui-relaunch") == 0;
+    // CLI invocations must not be blocked by an already running GUI instance.
+    if (arguments.count() > 1 && !guiRelaunch) return App::RunCommandLine(arguments.count(), arguments.data());
+
+    UniqueHandle instanceMutex(CreateMutexW(nullptr, TRUE, PROCESS_MUTEX_GUID));
+    if (!instanceMutex.get()) return 1;
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        DWORD waitRes = WaitForSingleObject(g_hMutex, 1000);
-        if (waitRes == WAIT_TIMEOUT || waitRes == WAIT_FAILED) {
-            if (waitRes == WAIT_TIMEOUT) {
-                HWND existingApp = FindWindowW(L"NameExchangerClass", L"FilenameExchanger");
-                if (existingApp) {
-                    ShowWindow(existingApp, SW_RESTORE);
-                    SetForegroundWindow(existingApp);
-                }
+        if (guiRelaunch && WaitForSingleObject(instanceMutex.get(), 5000) == WAIT_OBJECT_0) {
+            instanceMutex.setOwnsMutex(true);
+        } else {
+            if (HWND existing = FindWindowW(L"NameExchangerClass", L"FilenameExchanger")) {
+                ShowWindow(existing, SW_RESTORE);
+                SetForegroundWindow(existing);
             }
-            LocalFree(argv);
-            CloseHandle(g_hMutex);
             return 0;
         }
+    } else {
+        instanceMutex.setOwnsMutex(true);
     }
 
     App& app = GetApp();
+    if (!app.Init(instance)) return 1;
 
-    if (!app.Init(hInstance, argc, argv)) {
-        LocalFree(argv);
-        if (g_hMutex) {
-            ReleaseMutex(g_hMutex);
-            CloseHandle(g_hMutex);
-        }
-        return 0;
-    }
-    LocalFree(argv);
-
-    int result = app.Run();
+    const int result = app.Run();
     app.Shutdown();
-
-    if (g_hMutex) {
-        ReleaseMutex(g_hMutex);
-        CloseHandle(g_hMutex);
-    }
-
     return result;
 }

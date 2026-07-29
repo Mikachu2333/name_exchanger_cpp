@@ -28,8 +28,10 @@ static const LocaleStrings kSimplifiedChinese = {
     /* resultPermDenied  */  "权限不足",
     /* resultAlreadyExists */"目标路径已存在",
     /* resultSameFile    */ "两个路径指向同一项",
-    /* resultInvalidPath */ "路径无效",
-    /* resultUnknown     */ "未知错误",
+    /* resultInvalidPath */ "路径、UTF-8 或参数无效",
+    /* resultUnsupportedType */ "不支持的特殊文件类型",
+    /* resultRollbackFailed */ "操作与回滚均失败；文件系统可能处于不一致状态，请立即人工检查两个路径",
+    /* resultUnknown     */ "未知错误或库发生 panic",
 };
 
 static const LocaleStrings kTraditionalChinese = {
@@ -56,8 +58,10 @@ static const LocaleStrings kTraditionalChinese = {
     /* resultPermDenied  */  "權限不足",
     /* resultAlreadyExists */"目標檔案已存在",
     /* resultSameFile    */ "兩個路徑指向同一檔案",
-    /* resultInvalidPath */ "無效路徑",
-    /* resultUnknown     */ "未知錯誤",
+    /* resultInvalidPath */ "路徑、UTF-8 或參數無效",
+    /* resultUnsupportedType */ "不支援的特殊檔案類型",
+    /* resultRollbackFailed */ "操作與回復均失敗；檔案系統可能不一致，請立即人工檢查兩個路徑",
+    /* resultUnknown     */ "未知錯誤或程式庫發生 panic",
 };
 
 static const LocaleStrings kEnglish = {
@@ -84,8 +88,10 @@ static const LocaleStrings kEnglish = {
     /* resultPermDenied  */  "Permission denied",
     /* resultAlreadyExists */"Target file already exists",
     /* resultSameFile    */  "Both paths refer to the same item",
-    /* resultInvalidPath */  "Invalid path",
-    /* resultUnknown     */  "Unknown error",
+    /* resultInvalidPath */  "Invalid path, UTF-8, or parameter",
+    /* resultUnsupportedType */ "Unsupported special file type",
+    /* resultRollbackFailed */ "The operation and rollback both failed. The filesystem may be inconsistent; inspect both paths immediately",
+    /* resultUnknown     */  "Unknown error or a library panic was caught",
 };
 
 // clang-format on
@@ -138,6 +144,11 @@ const char* GetOutputInfo(int id) {
             return locale.resultSameFile;
         case 5:
             return locale.resultInvalidPath;
+        case 6:
+            return locale.resultUnsupportedType;
+        case 7:
+            return locale.resultRollbackFailed;
+        case 255:
         default:
             return locale.resultUnknown;
     }

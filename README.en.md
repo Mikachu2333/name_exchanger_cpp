@@ -25,10 +25,11 @@ name_exchanger <path1> <path2> [preserve]
 
 ## Other Notes
 
-- Supports Windows 7 and above.
-- Supports special paths like mounted virtual directories, network drives, and WSL paths.
-- Automatically reverts and provides a notification on swap failure.
-- Some special directories may require specific permissions; please use with caution.
+- Supports Windows 10 version 1607 and later.
+- Supports local, network, and virtual paths when both the library and underlying filesystem permit renaming.
+- Each rename step is atomic, but the complete three-step exchange is not a crash-safe transaction.
+- Ordinary failures trigger a rollback attempt. If both the operation and rollback fail, the app issues a critical warning requiring manual inspection.
+- Both entries and the temporary directory must be within a filesystem scope that permits the required renames.
 
 ## Screenshot
 

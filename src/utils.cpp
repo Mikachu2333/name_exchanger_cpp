@@ -2,32 +2,60 @@
 
 #include <shellapi.h>
 
+#include <limits>
+#include <vector>
+
+namespace {
+[[nodiscard]] bool FitsInt(size_t size) noexcept {
+    return size <= static_cast<size_t>((std::numeric_limits<int>::max)());
+}
+}
+
 std::string Utf16ToUtf8(const std::wstring& wstr) {
-    if (wstr.empty()) {
-        return {};
-    }
-    int sizeNeeded =
-        WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
-    if (sizeNeeded <= 0) {
-        return {};
-    }
+    if (wstr.empty()) return {};
+    if (!FitsInt(wstr.size())) return {};
+
+    const int sourceSize = static_cast<int>(wstr.size());
+    const int sizeNeeded = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wstr.data(), sourceSize, nullptr, 0,
+                                               nullptr, nullptr);
+    if (sizeNeeded <= 0) return {};
+
     std::string result(static_cast<size_t>(sizeNeeded), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), result.data(), sizeNeeded, nullptr,
-                        nullptr);
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wstr.data(), sourceSize, result.data(), sizeNeeded, nullptr,
+                            nullptr) != sizeNeeded) {
+        return {};
+    }
     return result;
 }
 
 std::wstring Utf8ToUtf16(const std::string& str) {
-    if (str.empty()) {
-        return {};
-    }
-    int sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), nullptr, 0);
-    if (sizeNeeded <= 0) {
-        return {};
-    }
+    if (str.empty()) return {};
+    if (!FitsInt(str.size())) return {};
+
+    const int sourceSize = static_cast<int>(str.size());
+    const int sizeNeeded = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.data(), sourceSize, nullptr, 0);
+    if (sizeNeeded <= 0) return {};
+
     std::wstring result(static_cast<size_t>(sizeNeeded), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), result.data(), sizeNeeded);
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, str.data(), sourceSize, result.data(), sizeNeeded) !=
+        sizeNeeded) {
+        return {};
+    }
     return result;
+}
+
+std::wstring GetExecutablePath() {
+    std::vector<wchar_t> buffer(512);
+    for (;;) {
+        SetLastError(ERROR_SUCCESS);
+        const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0) return {};
+        if (length < buffer.size() - 1 || (length < buffer.size() && GetLastError() != ERROR_INSUFFICIENT_BUFFER)) {
+            return std::wstring(buffer.data(), length);
+        }
+        if (buffer.size() >= 32768) return {};
+        buffer.resize((std::min)(buffer.size() * 2, static_cast<size_t>(32768)));
+    }
 }
 
 bool IsRunAsAdmin() {
@@ -37,85 +65,70 @@ bool IsRunAsAdmin() {
 
     if (AllocateAndInitializeSid(&ntAuthority, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0,
                                  0, &adminGroup)) {
-        CheckTokenMembership(nullptr, adminGroup, &isAdmin);
+        if (!CheckTokenMembership(nullptr, adminGroup, &isAdmin)) isAdmin = FALSE;
         FreeSid(adminGroup);
     }
     return isAdmin != FALSE;
 }
 
-static bool LaunchUnelevatedViaExplorer(const wchar_t* exePath) {
-    HWND shellWnd = GetShellWindow();
-    if (!shellWnd) return false;
+namespace {
+bool LaunchUnelevatedViaExplorer(const std::wstring& exePath) {
+    const HWND shellWindow = GetShellWindow();
+    if (!shellWindow) return false;
 
     DWORD explorerPid = 0;
-    GetWindowThreadProcessId(shellWnd, &explorerPid);
+    GetWindowThreadProcessId(shellWindow, &explorerPid);
     if (!explorerPid) return false;
 
-    HANDLE hExplorer = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, explorerPid);
-    if (!hExplorer) return false;
+    HANDLE explorer = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, explorerPid);
+    if (!explorer) return false;
 
-    HANDLE hExplorerToken = nullptr;
-    BOOL ok = OpenProcessToken(hExplorer, TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_QUERY, &hExplorerToken);
-    CloseHandle(hExplorer);
-    if (!ok || !hExplorerToken) return false;
+    HANDLE explorerToken = nullptr;
+    BOOL ok = OpenProcessToken(explorer, TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_QUERY, &explorerToken);
+    CloseHandle(explorer);
+    if (!ok || !explorerToken) return false;
 
-    HANDLE hPrimaryToken = nullptr;
-    ok = DuplicateTokenEx(
-        hExplorerToken,
-        TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID, nullptr,
-        SecurityImpersonation, TokenPrimary, &hPrimaryToken);
-    CloseHandle(hExplorerToken);
-    if (!ok || !hPrimaryToken) return false;
+    HANDLE primaryToken = nullptr;
+    ok = DuplicateTokenEx(explorerToken,
+                          TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT |
+                              TOKEN_ADJUST_SESSIONID,
+                          nullptr, SecurityImpersonation, TokenPrimary, &primaryToken);
+    CloseHandle(explorerToken);
+    if (!ok || !primaryToken) return false;
 
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    std::wstring commandLine = L"\"" + exePath + L"\" --gui-relaunch";
+    ok = CreateProcessWithTokenW(primaryToken, 0, exePath.c_str(), commandLine.data(), 0, nullptr, nullptr, &startup,
+                                 &process);
+    CloseHandle(primaryToken);
 
-    ok = CreateProcessWithTokenW(hPrimaryToken, 0, exePath, nullptr, 0, nullptr, nullptr, &si, &pi);
-
-    CloseHandle(hPrimaryToken);
-
-    if (ok) {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        return true;
-    }
-    return false;
+    if (!ok) return false;
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return true;
+}
 }
 
-extern HANDLE g_hMutex;
-
 bool RunAsAdmin(bool privilege) {
-    std::wstring szPath(32768, L'\0');
-    DWORD len = GetModuleFileNameW(nullptr, szPath.data(), static_cast<DWORD>(szPath.size()));
-    if (len == 0) {
-        return false;
-    }
-    szPath.resize(len);
-
-    // Release the mutex so the new elevated instance can start
-    if (g_hMutex) {
-        ReleaseMutex(g_hMutex);
-        CloseHandle(g_hMutex);
-        g_hMutex = nullptr;
-    }
+    const std::wstring executable = GetExecutablePath();
+    if (executable.empty()) return false;
 
     if (privilege) {
-        SHELLEXECUTEINFOW sei = {};
-        sei.cbSize = sizeof(sei);
-        sei.lpVerb = L"runas";
-        sei.lpFile = szPath.c_str();
-        sei.hwnd = nullptr;
-        sei.nShow = SW_NORMAL;
-        if (ShellExecuteExW(&sei)) {
-            ExitProcess(0);
-        }
-    } else {
-        if (LaunchUnelevatedViaExplorer(szPath.c_str())) {
-            ExitProcess(0);
-        }
+        SHELLEXECUTEINFOW execute{};
+        execute.cbSize = sizeof(execute);
+        execute.fMask = SEE_MASK_NOCLOSEPROCESS;
+        execute.lpVerb = L"runas";
+        execute.lpFile = executable.c_str();
+        execute.lpParameters = L"--gui-relaunch";
+        execute.nShow = SW_NORMAL;
+        if (!ShellExecuteExW(&execute)) return false;
+        if (execute.hProcess) CloseHandle(execute.hProcess);
+    } else if (!LaunchUnelevatedViaExplorer(executable)) {
+        return false;
     }
-    // If ShellExecuteExW failed, user refused elevation — re-acquire the mutex
-    g_hMutex = CreateMutexW(nullptr, TRUE, PROCESS_MUTEX_GUID);
-    return false;
+
+    // Let the normal main loop perform orderly cleanup. The caller closes the old instance.
+    return true;
 }

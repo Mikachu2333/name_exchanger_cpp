@@ -1,6 +1,7 @@
 #include "app.hpp"
 
 #include "d3d_helpers.hpp"
+#include "exchange_name_lib.h"
 #include "font_data.hpp"
 #include "i18n.hpp"
 #include "tray.hpp"
@@ -19,10 +20,9 @@
 #include <cctype>
 #include <dwmapi.h>
 #include <filesystem>
+#include <limits>
+#include <optional>
 #include <string>
-
-// External function from the Rust library
-extern "C" int exchange(const char* path1, const char* path2, bool preserve_ext);
 
 // Forward declaration for ImGui Win32 handler
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -116,43 +116,30 @@ void PrintCommandLineUsageToConsole(const std::wstring& message) {
     }
 }
 
-bool ParsePreserveFlag(const wchar_t* rawFlag) {
+std::optional<bool> ParsePreserveFlag(const wchar_t* rawFlag) {
     std::string flag = Utf16ToUtf8(rawFlag ? rawFlag : L"");
     std::transform(flag.begin(), flag.end(), flag.begin(),
                    [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-
-    if (flag == "f" || flag == "false" || flag == "n" || flag == "0") {
-        return false;
-    }
-    return true;
+    if (flag == "true" || flag == "t" || flag == "yes" || flag == "y" || flag == "1") return true;
+    if (flag == "false" || flag == "f" || flag == "no" || flag == "n" || flag == "0") return false;
+    return std::nullopt;
 }
 
-void ShowCommandLineUsageOnError(int returnId) {
-    if (returnId == 0) {
-        return;
-    }
+int ExchangePaths(const std::string& first, const std::string& second, bool preserve) {
+    return static_cast<int>(exchange_n(reinterpret_cast<const uint8_t*>(first.data()), first.size(),
+                                       reinterpret_cast<const uint8_t*>(second.data()), second.size(),
+                                       static_cast<uint8_t>(preserve)));
+}
+
+void ShowCommandLineError(int returnId, bool includeUsage) {
+    if (returnId == 0) return;
 
     const auto& L = GetCurrentLocale();
-    std::wstring errorText = Utf8ToUtf16(GetOutputInfo(returnId));
-    std::wstring message = std::wstring(L.cmdErrorPrefix) + errorText + L"\n\n" + L.cmdUsage;
+    std::wstring message = std::wstring(L.cmdErrorPrefix) + Utf8ToUtf16(GetOutputInfo(returnId));
+    if (includeUsage) message += std::wstring(L"\n\n") + L.cmdUsage;
     PrintCommandLineUsageToConsole(message);
 }
 
-// Rename the executable's extension reliably via a two-step rename through an intermediate
-// extension, avoiding NTFS case-insensitive same-file issues where rename(".exe", ".EXE") may
-// be a no-op. On failure ec is set and the file is rolled back to its original name.
-void RenameExeToExtension(const std::filesystem::path& exePath, const std::wstring& targetExt, std::error_code& ec) {
-    const std::filesystem::path tmpPath = exePath.parent_path() / (exePath.stem().wstring() + L"._exch_tmp_");
-    ec.clear();
-    std::filesystem::rename(exePath, tmpPath, ec);
-    if (ec) return;
-    const std::filesystem::path finalPath = exePath.parent_path() / (exePath.stem().wstring() + targetExt);
-    std::filesystem::rename(tmpPath, finalPath, ec);
-    if (ec) {
-        std::error_code ignored;
-        std::filesystem::rename(tmpPath, exePath, ignored);
-    }
-}
 }  // namespace
 
 static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -246,33 +233,38 @@ void App::ApplySystemTheme() {
     tooltipTextColor = text;
 }
 
-bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
-    // Command line mode: 2/3 args → exchange and exit
-    if (argc == 3) {
-        std::string p1 = Utf16ToUtf8(argv[1]);
-        std::string p2 = Utf16ToUtf8(argv[2]);
-        const int returnId = exchange(p1.c_str(), p2.c_str(), true);
-        ShowCommandLineUsageOnError(returnId);
-        return false;  // Signal to exit
-    } else if (argc == 4) {
-        std::string p1 = Utf16ToUtf8(argv[1]);
-        std::string p2 = Utf16ToUtf8(argv[2]);
-        const bool preserve = ParsePreserveFlag(argv[3]);
-        const int returnId = exchange(p1.c_str(), p2.c_str(), preserve);
-        ShowCommandLineUsageOnError(returnId);
-        return false;  // Signal to exit
+int App::RunCommandLine(int argc, wchar_t** argv) {
+    if ((argc != 3 && argc != 4) || !argv) {
+        PrintCommandLineUsageToConsole(GetCurrentLocale().cmdUsage);
+        return 5;
     }
 
-    // Check if the executable has .EXE extension and we are not admin
-    std::wstring szPath(32768, L'\0');
-    DWORD len = GetModuleFileNameW(nullptr, szPath.data(), static_cast<DWORD>(szPath.size()));
-    szPath.resize(len);
-    std::filesystem::path p(szPath);
-    if (p.extension() == L".EXE" && !IsRunAsAdmin()) {
-        RunAsAdmin(true);
+    const std::string first = Utf16ToUtf8(argv[1] ? argv[1] : L"");
+    const std::string second = Utf16ToUtf8(argv[2] ? argv[2] : L"");
+    if (first.empty() || second.empty()) {
+        ShowCommandLineError(5, true);
+        return 5;
     }
 
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    bool preserve = true;
+    if (argc == 4) {
+        const std::optional<bool> parsed = ParsePreserveFlag(argv[3]);
+        if (!parsed) {
+            ShowCommandLineError(5, true);
+            return 5;
+        }
+        preserve = *parsed;
+    }
+
+    const int result = ExchangePaths(first, second, preserve);
+    ShowCommandLineError(result, false);
+    return result;
+}
+
+bool App::Init(HINSTANCE hInstance) {
+    const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    comInitialized = SUCCEEDED(comResult);
+    if (FAILED(comResult) && comResult != RPC_E_CHANGED_MODE) return false;
 
     // Create application window
     ImGui_ImplWin32_EnableDpiAwareness();
@@ -283,7 +275,11 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
     wc.lpfnWndProc = ::WndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = L"NameExchangerClass";
-    RegisterClassExW(&wc);
+    if (!RegisterClassExW(&wc)) {
+        if (comInitialized) CoUninitialize();
+        comInitialized = false;
+        return false;
+    }
 
     // Get primary monitor DPI for initial window sizing
     {
@@ -307,7 +303,8 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
 
     if (!hwnd) {
         UnregisterClassW(wc.lpszClassName, hInstance);
-        CoUninitialize();
+        if (comInitialized) CoUninitialize();
+        comInitialized = false;
         return false;
     }
 
@@ -323,7 +320,8 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
         DestroyWindow(hwnd);
         hwnd = nullptr;
         UnregisterClassW(wc.lpszClassName, hInstance);
-        CoUninitialize();
+        if (comInitialized) CoUninitialize();
+        comInitialized = false;
         return false;
     }
 
@@ -335,14 +333,15 @@ bool App::Init(HINSTANCE hInstance, int argc, wchar_t** argv) {
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
 
-    // Setup tray icon
-    SetupTrayIcon(hwnd);
+    // A tray failure is non-fatal; the window remains fully usable.
+    const bool trayAvailable = SetupTrayIcon(hwnd);
+    (void)trayAvailable;
 
     // Enable drag and drop
     DragAcceptFiles(hwnd, TRUE);
     ChangeWindowMessageFilterEx(hwnd, WM_DROPFILES, MSGFLT_ALLOW, nullptr);
-    ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
-    ChangeWindowMessageFilterEx(hwnd, 0x0049 /*WM_COPYGLOBALDATA*/, MSGFLT_ALLOW, nullptr);
+    ChangeWindowMessageFilterEx(hwnd, 0x0049 /* WM_COPYGLOBALDATA, required by shell drag/drop */, MSGFLT_ALLOW,
+                                nullptr);
 
     // Setup ImGui
     IMGUI_CHECKVERSION();
@@ -391,23 +390,25 @@ int App::Run() {
         }
 
         if (!showWindow) {
-            Sleep(10);
+            WaitMessage();
             continue;
         }
 
-        // Handle swap chain occlusion
+        // Handle swap chain occlusion without busy polling.
         if (d3d.swapChainOccluded && d3d.swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) {
-            Sleep(10);
+            MsgWaitForMultipleObjects(0, nullptr, FALSE, 100, QS_ALLINPUT);
             continue;
         }
         d3d.swapChainOccluded = false;
 
         // Handle resize
         if (d3d.resizeWidth != 0 && d3d.resizeHeight != 0) {
-            CleanupRenderTarget(d3d);
-            d3d.swapChain->ResizeBuffers(0, d3d.resizeWidth, d3d.resizeHeight, DXGI_FORMAT_UNKNOWN, 0);
+            const UINT width = d3d.resizeWidth;
+            const UINT height = d3d.resizeHeight;
             d3d.resizeWidth = d3d.resizeHeight = 0;
-            CreateRenderTarget(d3d);
+            CleanupRenderTarget(d3d);
+            const HRESULT resizeResult = d3d.swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+            if (FAILED(resizeResult) || !CreateRenderTarget(d3d)) return 2;
         }
 
         // Start ImGui frame
@@ -424,8 +425,9 @@ int App::Run() {
         d3d.deviceContext->ClearRenderTargetView(d3d.renderTargetView, clearColorData);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
-        HRESULT hr = d3d.swapChain->Present(1, 0);  // Present with vsync
-        d3d.swapChainOccluded = (hr == DXGI_STATUS_OCCLUDED);
+        const HRESULT presentResult = d3d.swapChain->Present(1, 0);  // Present with vsync
+        d3d.swapChainOccluded = (presentResult == DXGI_STATUS_OCCLUDED);
+        if (FAILED(presentResult) && presentResult != DXGI_STATUS_OCCLUDED) return 2;
     }
 
     return 0;
@@ -443,21 +445,25 @@ void App::Shutdown() {
         hwnd = nullptr;
     }
     UnregisterClassW(L"NameExchangerClass", GetModuleHandleW(nullptr));
-    CoUninitialize();
+    if (comInitialized) {
+        CoUninitialize();
+        comInitialized = false;
+    }
 }
 
 void App::RenderUI() {
     const auto& L = GetCurrentLocale();
     const float s = dpiScale;
 
-    float winW = 364 * s;
-    float winH = 240 * s;
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    const float winW = display.x;
+    const float winH = display.y;
     float barH = 32 * s;
     float btnSize = 29 * s;
     float btnY = (barH - btnSize) / 2.0f;
     float contentX = 11 * s;
     float inputWidth = winW - contentX * 2;
-    float each_width = 6 * s + btnSize;
+    const float each_width = 6 * s + btnSize;
 
     // Clear input focus when window loses foreground
     if (GetForegroundWindow() != hwnd) {
@@ -520,34 +526,14 @@ void App::RenderUI() {
 
     // Admin button
     ImGui::SetCursorPos(ImVec2(winW - each_width * 4, btnY));
-    bool isAdmin = IsRunAsAdmin();
+    const bool isAdmin = IsRunAsAdmin();
     if (ImGui::Button(isAdmin ? "E" : "D", ImVec2(btnSize, btnSize))) {
-        std::wstring szPath(32768, L'\0');
-        DWORD len = GetModuleFileNameW(nullptr, szPath.data(), static_cast<DWORD>(szPath.size()));
-        szPath.resize(len);
-        std::filesystem::path p(szPath);
-        if (!isAdmin) {
-            std::filesystem::path newPath = p.parent_path() / (p.stem().wstring() + L".EXE");
-            std::error_code ec;
-            RenameExeToExtension(p, L".EXE", ec);
-            if (ec) {
-                MessageBoxW(hwnd, L"Failed to prepare for elevation.", L"Error", MB_OK | MB_ICONERROR);
-            } else if (!RunAsAdmin(true)) {
-                std::error_code ec2;
-                RenameExeToExtension(newPath, p.extension().wstring(), ec2);
-                MessageBoxW(hwnd, L"Failed to elevate privileges.", L"Error", MB_OK | MB_ICONERROR);
-            }
+        if (RunAsAdmin(!isAdmin)) {
+            done = true;
         } else {
-            std::filesystem::path newPath = p.parent_path() / (p.stem().wstring() + L".exe");
-            std::error_code ec;
-            RenameExeToExtension(p, L".exe", ec);
-            if (ec) {
-                MessageBoxW(hwnd, L"Failed to prepare for dropping privileges.", L"Error", MB_OK | MB_ICONERROR);
-            } else if (!RunAsAdmin(false)) {
-                std::error_code ec2;
-                RenameExeToExtension(newPath, p.extension().wstring(), ec2);
-                MessageBoxW(hwnd, L"Failed to drop privileges.", L"Error", MB_OK | MB_ICONERROR);
-            }
+            MessageBoxW(hwnd, isAdmin ? L"Failed to start a standard-user instance."
+                                      : L"Elevation was cancelled or failed.",
+                        L.errorTitle, MB_OK | MB_ICONERROR);
         }
     }
     if (ImGui::IsItemHovered()) {
@@ -661,19 +647,18 @@ void App::RenderUI() {
     ImGui::PopStyleVar(2);
     if (fontInput) ImGui::PopFont();
 
-    const float optionY = 160.0f * s;
-    const float startBtnY = 190.0f * s;
+    const float optionY = 158.0f * s;
+    const float startBtnY = winH - 48.0f * s;
 
     if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f * s, 1.0f * s));
-    ImGui::SetCursorPos(ImVec2(contentX, optionY));
-    if (ImGui::RadioButton(L.preserveExtLabel, preserveExt)) {
-        preserveExt = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::RadioButton(L.swapFullNameLabel, !preserveExt)) {
-        preserveExt = false;
-    }
+    const float optionGap = 14.0f * s;
+    const float optionWidth = ImGui::CalcTextSize(L.preserveExtLabel).x + ImGui::GetFrameHeight() + optionGap +
+                              ImGui::CalcTextSize(L.swapFullNameLabel).x + ImGui::GetFrameHeight();
+    ImGui::SetCursorPos(ImVec2((std::max)(contentX, (winW - optionWidth) * 0.5f), optionY));
+    if (ImGui::RadioButton(L.preserveExtLabel, preserveExt)) preserveExt = true;
+    ImGui::SameLine(0.0f, optionGap);
+    if (ImGui::RadioButton(L.swapFullNameLabel, !preserveExt)) preserveExt = false;
     ImGui::PopStyleVar();
     if (fontLabel) ImGui::PopFont();
 
@@ -683,7 +668,7 @@ void App::RenderUI() {
     float btnH2 = 44 * s;
     ImGui::SetCursorPos(ImVec2((winW - btnW) / 2.0f, startBtnY));
     if (ImGui::Button(L.startButton, ImVec2(btnW, btnH2))) {
-        int returnId = exchange(path1.c_str(), path2.c_str(), preserveExt);
+        const int returnId = ExchangePaths(path1, path2, preserveExt);
         if (returnId == 0) {
             path1.clear();
             path2.clear();
@@ -701,39 +686,47 @@ void App::RenderUI() {
 
 void App::CreateSendToShortcut(bool remove) {
     const auto& L = GetCurrentLocale();
+    PWSTR rawSendTo = nullptr;
+    const HRESULT folderResult = SHGetKnownFolderPath(FOLDERID_SendTo, 0, nullptr, &rawSendTo);
+    if (FAILED(folderResult) || !rawSendTo) {
+        MessageBoxW(hwnd, L"Unable to locate the Send To folder.", L.errorTitle, MB_OK | MB_ICONERROR);
+        return;
+    }
+    const std::filesystem::path shortcut = std::filesystem::path(rawSendTo) / L"name_exchanger.lnk";
+    CoTaskMemFree(rawSendTo);
 
-    // Use SHGetKnownFolderPath
-    wchar_t* sendToPath = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_SendTo, 0, nullptr, &sendToPath))) {
+    if (remove) {
+        if (!DeleteFileW(shortcut.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
+            MessageBoxW(hwnd, L"Unable to remove the Send To shortcut.", L.errorTitle, MB_OK | MB_ICONERROR);
+            return;
+        }
+        MessageBoxW(hwnd, L.shortcutRemoved, L.tipsTitle, MB_OK);
         return;
     }
 
-    std::wstring shortcutPath = std::wstring(sendToPath) + L"\\name_exchanger.lnk";
-    CoTaskMemFree(sendToPath);
-
-    if (remove) {
-        DeleteFileW(shortcutPath.c_str());
-        MessageBoxW(hwnd, L.shortcutRemoved, L.tipsTitle, MB_OK);
-    } else {
-        IShellLinkW* psl = nullptr;
-        if (SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
-                                       reinterpret_cast<void**>(&psl)))) {
-            std::wstring exePath(32768, L'\0');
-            DWORD len = GetModuleFileNameW(nullptr, exePath.data(), static_cast<DWORD>(exePath.size()));
-            exePath.resize(len);
-            psl->SetPath(exePath.c_str());
-            psl->SetDescription(L"FilenameExchanger");
-            psl->SetIconLocation(exePath.c_str(), 0);
-
-            IPersistFile* ppf = nullptr;
-            if (SUCCEEDED(psl->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&ppf)))) {
-                ppf->Save(shortcutPath.c_str(), TRUE);
-                ppf->Release();
-                MessageBoxW(hwnd, L.shortcutCreated, L.tipsTitle, MB_OK);
-            }
-            psl->Release();
-        }
+    const std::wstring executable = GetExecutablePath();
+    if (executable.empty()) {
+        MessageBoxW(hwnd, L"Unable to determine the executable path.", L.errorTitle, MB_OK | MB_ICONERROR);
+        return;
     }
+
+    IShellLinkW* shellLink = nullptr;
+    HRESULT result = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&shellLink));
+    if (SUCCEEDED(result)) result = shellLink->SetPath(executable.c_str());
+    if (SUCCEEDED(result)) result = shellLink->SetDescription(L"FilenameExchanger");
+    if (SUCCEEDED(result)) result = shellLink->SetIconLocation(executable.c_str(), 0);
+
+    IPersistFile* persist = nullptr;
+    if (SUCCEEDED(result)) result = shellLink->QueryInterface(IID_PPV_ARGS(&persist));
+    if (SUCCEEDED(result)) result = persist->Save(shortcut.c_str(), TRUE);
+    if (persist) persist->Release();
+    if (shellLink) shellLink->Release();
+
+    if (FAILED(result)) {
+        MessageBoxW(hwnd, L"Unable to create the Send To shortcut.", L.errorTitle, MB_OK | MB_ICONERROR);
+        return;
+    }
+    MessageBoxW(hwnd, L.shortcutCreated, L.tipsTitle, MB_OK);
 }
 
 LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -765,9 +758,13 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_DPICHANGED: {
             UpdateDpiScale();
-            RECT* pRect = reinterpret_cast<RECT*>(lParam);
-            SetWindowPos(hwnd, nullptr, pRect->left, pRect->top, pRect->right - pRect->left, pRect->bottom - pRect->top,
-                         SWP_NOZORDER | SWP_NOACTIVATE);
+            const auto* suggested = reinterpret_cast<const RECT*>(lParam);
+            if (suggested) {
+                const int width = static_cast<int>(364 * dpiScale);
+                const int height = static_cast<int>(240 * dpiScale);
+                SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, width, height,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+            }
 
             // Rebuild fonts with new DPI
             ImGuiIO& io = ImGui::GetIO();
@@ -783,19 +780,28 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                                                       static_cast<int>(kIconFontDataSize), 15.0f * dpiScale, &cfg);
 
             ImGui_ImplDX11_InvalidateDeviceObjects();
+            ImGui_ImplDX11_CreateDeviceObjects();
             return 0;
         }
 
         case WM_DROPFILES: {
             HDROP hDrop = reinterpret_cast<HDROP>(wParam);
-            UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+            if (!hDrop) return 0;
+            const UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
 
             if (count == 1) {
                 UINT len = DragQueryFileW(hDrop, 0, nullptr, 0);
                 std::wstring file(len + 1, L'\0');
-                DragQueryFileW(hDrop, 0, file.data(), len + 1);
+                if (DragQueryFileW(hDrop, 0, file.data(), len + 1) != len) {
+                    DragFinish(hDrop);
+                    return 0;
+                }
                 file.resize(len);
                 std::string u8file = Utf16ToUtf8(file);
+                if (u8file.empty()) {
+                    DragFinish(hDrop);
+                    return 0;
+                }
 
                 if (path1.empty()) {
                     path1 = u8file;
@@ -808,23 +814,30 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             } else if (count >= 2) {
                 UINT len1 = DragQueryFileW(hDrop, 0, nullptr, 0);
                 std::wstring file1(len1 + 1, L'\0');
-                DragQueryFileW(hDrop, 0, file1.data(), len1 + 1);
+                const bool firstRead = DragQueryFileW(hDrop, 0, file1.data(), len1 + 1) == len1;
                 file1.resize(len1);
 
-                UINT len2 = DragQueryFileW(hDrop, 1, nullptr, 0);
+                const UINT len2 = DragQueryFileW(hDrop, 1, nullptr, 0);
                 std::wstring file2(len2 + 1, L'\0');
-                DragQueryFileW(hDrop, 1, file2.data(), len2 + 1);
+                const bool secondRead = DragQueryFileW(hDrop, 1, file2.data(), len2 + 1) == len2;
                 file2.resize(len2);
 
-                path1 = Utf16ToUtf8(file1);
-                path2 = Utf16ToUtf8(file2);
+                if (firstRead && secondRead) {
+                    const std::string first = Utf16ToUtf8(file1);
+                    const std::string second = Utf16ToUtf8(file2);
+                    if (!first.empty() && !second.empty()) {
+                        path1 = first;
+                        path2 = second;
+                    }
+                }
             }
             DragFinish(hDrop);
             return 0;
         }
 
-        case WM_USER + 1: {
-            switch (lParam) {
+        case WM_TRAYICON: {
+            // NOTIFYICON_VERSION_4 places the event in LOWORD(lParam).
+            switch (LOWORD(lParam)) {
                 case WM_LBUTTONUP:
                     showWindow = !showWindow;
                     ShowWindow(hwnd, showWindow ? SW_SHOW : SW_HIDE);
@@ -843,10 +856,17 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 auto App::LoadMsyhFont(ImGuiIO& io, float size) -> ImFont* {
-    const char* fps[] = {"c:\\Windows\\Fonts\\msyh.ttc", "c:\\Windows\\Fonts\\msyh.ttf"};
-    for (const char* fp : fps) {
-        if (GetFileAttributesA(fp) != INVALID_FILE_ATTRIBUTES) {
-            return io.Fonts->AddFontFromFileTTF(fp, size, nullptr, io.Fonts->GetGlyphRangesChineseFull());
+    wchar_t windowsDirectory[MAX_PATH]{};
+    if (GetWindowsDirectoryW(windowsDirectory, static_cast<UINT>(std::size(windowsDirectory))) != 0) {
+        for (const wchar_t* filename : {L"msyh.ttc", L"msyh.ttf"}) {
+            const std::filesystem::path fontPath = std::filesystem::path(windowsDirectory) / L"Fonts" / filename;
+            const std::string utf8Path = Utf16ToUtf8(fontPath.wstring());
+            if (!utf8Path.empty() && GetFileAttributesW(fontPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                if (ImFont* font = io.Fonts->AddFontFromFileTTF(utf8Path.c_str(), size, nullptr,
+                                                               io.Fonts->GetGlyphRangesChineseFull())) {
+                    return font;
+                }
+            }
         }
     }
     ImFontConfig cfg;
