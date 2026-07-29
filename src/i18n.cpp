@@ -30,7 +30,7 @@ static const LocaleStrings kSimplifiedChinese = {
     /* resultSameFile    */ "两个路径指向同一项",
     /* resultInvalidPath */ "路径、UTF-8 或参数无效",
     /* resultUnsupportedType */ "不支持的特殊文件类型",
-    /* resultRollbackFailed */ "操作与回滚均失败；文件系统可能处于不一致状态，请立即人工检查两个路径",
+    /* resultRollbackFailed */ "操作与回滚均失败；不支持的文件系统，请检查两个路径符合系统路径规范",
     /* resultUnknown     */ "未知错误或库发生 panic",
 };
 
@@ -60,7 +60,7 @@ static const LocaleStrings kTraditionalChinese = {
     /* resultSameFile    */ "兩個路徑指向同一檔案",
     /* resultInvalidPath */ "路徑、UTF-8 或參數無效",
     /* resultUnsupportedType */ "不支援的特殊檔案類型",
-    /* resultRollbackFailed */ "操作與回復均失敗；檔案系統可能不一致，請立即人工檢查兩個路徑",
+    /* resultRollbackFailed */ "操作失敗；文件系統不相容，請確保兩個路徑符合作業系統格式",
     /* resultUnknown     */ "未知錯誤或程式庫發生 panic",
 };
 
