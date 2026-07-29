@@ -1,7 +1,7 @@
 #include "app.hpp"
 
 #include "d3d_helpers.hpp"
-#include "exchange_name_lib.h"
+#include "exchange_name_lib.hpp"
 #include "font_data.hpp"
 #include "i18n.hpp"
 #include "tray.hpp"
@@ -262,6 +262,7 @@ int App::RunCommandLine(int argc, wchar_t** argv) {
 }
 
 bool App::Init(HINSTANCE hInstance) {
+    isAdmin = IsRunAsAdmin();
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     comInitialized = SUCCEEDED(comResult);
     if (FAILED(comResult) && comResult != RPC_E_CHANGED_MODE) return false;
@@ -358,9 +359,6 @@ bool App::Init(HINSTANCE hInstance) {
     // Load fonts
     fontLabel = LoadMsyhFont(io, 16.0f * dpiScale);
 
-    // Input font (15pt)
-    fontInput = LoadMsyhFont(io, 15.0f * dpiScale);
-
     // Start button font (24pt)
     fontStartBtn = LoadMsyhFont(io, 24.0f * dpiScale);
 
@@ -376,6 +374,7 @@ bool App::Init(HINSTANCE hInstance) {
 }
 
 int App::Run() {
+    lastInteractionTick = GetTickCount64();
     while (!done) {
         MSG msg{};
         while (PeekMessageW(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
@@ -387,6 +386,13 @@ int App::Run() {
         }
         if (done) {
             break;
+        }
+
+        const ImGuiIO& previousFrameIo = ImGui::GetIO();
+        if (previousFrameIo.MouseDelta.x != 0.0f || previousFrameIo.MouseDelta.y != 0.0f ||
+            previousFrameIo.MouseWheel != 0.0f || previousFrameIo.MouseWheelH != 0.0f ||
+            previousFrameIo.InputQueueCharacters.Size != 0 || ImGui::IsAnyMouseDown() || ImGui::IsAnyItemActive()) {
+            lastInteractionTick = GetTickCount64();
         }
 
         if (!showWindow) {
@@ -428,6 +434,11 @@ int App::Run() {
         const HRESULT presentResult = d3d.swapChain->Present(1, 0);  // Present with vsync
         d3d.swapChainOccluded = (presentResult == DXGI_STATUS_OCCLUDED);
         if (FAILED(presentResult) && presentResult != DXGI_STATUS_OCCLUDED) return 2;
+
+        // A static immediate-mode UI does not need 60 redraws per second indefinitely.
+        if (GetTickCount64() - lastInteractionTick > 1000) {
+            MsgWaitForMultipleObjects(0, nullptr, FALSE, 66, QS_ALLINPUT);  // about 15 FPS while idle
+        }
     }
 
     return 0;
@@ -526,7 +537,6 @@ void App::RenderUI() {
 
     // Admin button
     ImGui::SetCursorPos(ImVec2(winW - each_width * 4, btnY));
-    const bool isAdmin = IsRunAsAdmin();
     if (ImGui::Button(isAdmin ? "E" : "D", ImVec2(btnSize, btnSize))) {
         if (RunAsAdmin(!isAdmin)) {
             done = true;
@@ -605,23 +615,15 @@ void App::RenderUI() {
     ImGui::Text("%s", L.file1Label);
     if (fontLabel) ImGui::PopFont();
 
-    // Input 1
-    if (fontInput) ImGui::PushFont(fontInput);
+    // InputText handles horizontal scrolling itself; an extra child window is unnecessary.
+    if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
     ImGui::SetCursorPos(ImVec2(contentX, 62 * s));
-
-    const float path1TextW = ImGui::CalcTextSize(path1.c_str()).x;
-    const float path1InnerW = (std::max)(inputWidth, path1TextW + 24.0f * s);
-    const float path1ChildH = 28.0f * s + ImGui::GetStyle().ScrollbarSize;
-
-    ImGui::BeginChild("##path1_scroll", ImVec2(inputWidth, path1ChildH), false, ImGuiWindowFlags_HorizontalScrollbar);
-    ImGui::SetNextItemWidth(path1InnerW);
+    ImGui::SetNextItemWidth(inputWidth);
     ImGui::InputText("##path1", &path1);
-    ImGui::EndChild();
-
     ImGui::PopStyleVar(2);
-    if (fontInput) ImGui::PopFont();
+    if (fontLabel) ImGui::PopFont();
 
     // Label 2
     if (fontLabel) ImGui::PushFont(fontLabel);
@@ -630,22 +632,14 @@ void App::RenderUI() {
     if (fontLabel) ImGui::PopFont();
 
     // Input 2
-    if (fontInput) ImGui::PushFont(fontInput);
+    if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
     ImGui::SetCursorPos(ImVec2(contentX, 120 * s));
-
-    const float path2TextW = ImGui::CalcTextSize(path2.c_str()).x;
-    const float path2InnerW = (std::max)(inputWidth, path2TextW + 24.0f * s);
-    const float path2ChildH = 28.0f * s + ImGui::GetStyle().ScrollbarSize;
-
-    ImGui::BeginChild("##path2_scroll", ImVec2(inputWidth, path2ChildH), false, ImGuiWindowFlags_HorizontalScrollbar);
-    ImGui::SetNextItemWidth(path2InnerW);
+    ImGui::SetNextItemWidth(inputWidth);
     ImGui::InputText("##path2", &path2);
-    ImGui::EndChild();
-
     ImGui::PopStyleVar(2);
-    if (fontInput) ImGui::PopFont();
+    if (fontLabel) ImGui::PopFont();
 
     const float optionY = 158.0f * s;
     const float startBtnY = winH - 48.0f * s;
@@ -653,8 +647,10 @@ void App::RenderUI() {
     if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f * s, 1.0f * s));
     const float optionGap = 14.0f * s;
-    const float optionWidth = ImGui::CalcTextSize(L.preserveExtLabel).x + ImGui::GetFrameHeight() + optionGap +
-                              ImGui::CalcTextSize(L.swapFullNameLabel).x + ImGui::GetFrameHeight();
+    if (optionWidth <= 0.0f) {
+        optionWidth = ImGui::CalcTextSize(L.preserveExtLabel).x + ImGui::GetFrameHeight() + optionGap +
+                      ImGui::CalcTextSize(L.swapFullNameLabel).x + ImGui::GetFrameHeight();
+    }
     ImGui::SetCursorPos(ImVec2((std::max)(contentX, (winW - optionWidth) * 0.5f), optionY));
     if (ImGui::RadioButton(L.preserveExtLabel, preserveExt)) preserveExt = true;
     ImGui::SameLine(0.0f, optionGap);
@@ -771,8 +767,8 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             io.Fonts->Clear();
 
             fontLabel = LoadMsyhFont(io, 16.0f * dpiScale);
-            fontInput = LoadMsyhFont(io, 15.0f * dpiScale);
             fontStartBtn = LoadMsyhFont(io, 24.0f * dpiScale);
+            optionWidth = 0.0f;
 
             ImFontConfig cfg;
             cfg.FontDataOwnedByAtlas = false;

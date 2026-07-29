@@ -17,18 +17,20 @@ struct App {
     bool isTopmost = true;
     bool showWindow = true;
     bool done = false;
+    bool isAdmin = false;
 
     HWND hwnd = nullptr;
     D3DState d3d = {};
     bool comInitialized = false;
+    ULONGLONG lastInteractionTick = 0;
 
     // DPI scaling
     float dpiScale = 1.0f;
+    float optionWidth = 0.0f;
 
     // Fonts
     ImFont* fontIcon = nullptr;
     ImFont* fontLabel = nullptr;
-    ImFont* fontInput = nullptr;
     ImFont* fontStartBtn = nullptr;
 
     // Theme colors (sync with Windows app theme)

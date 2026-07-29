@@ -3,6 +3,7 @@ project(NameExchanger VERSION 3.1.3 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Detect architecture
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -63,8 +64,24 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # Ensure UTF-8 source encoding for all compilers
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE /utf-8 /W4 /permissive- /EHsc)
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        /utf-8 /W4 /permissive- /EHsc
+        $<$<CONFIG:Release>:/O2 /Gy /Gw>
+        $<$<CONFIG:MinSizeRel>:/O1 /Gy /Gw>
+    )
+    target_link_options(${PROJECT_NAME} PRIVATE
+        $<$<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>:/OPT:REF /OPT:ICF>
+    )
     target_compile_definitions(${PROJECT_NAME} PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR LANGUAGES CXX)
+    if(IPO_SUPPORTED)
+        set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+        set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL TRUE)
+    else()
+        message(WARNING "Interprocedural optimization is unavailable: ${IPO_ERROR}")
+    endif()
 endif()
 
 # Use static CRT for MSVC in Release (/MT), dynamic in Debug (/MDd)
