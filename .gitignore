@@ -1,4 +1,6 @@
 .cache/*
 build/*
 build-x86/*
+build-x64/*
 original/*
+.vscode/c_cpp_properties.json
