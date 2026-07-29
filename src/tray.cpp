@@ -7,7 +7,7 @@
 namespace {
 NOTIFYICONDATAW g_notification{};
 bool g_added = false;
-}
+}  // namespace
 
 bool SetupTrayIcon(HWND hwnd) {
     g_notification = {};

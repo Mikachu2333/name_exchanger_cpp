@@ -435,9 +435,11 @@ int App::Run() {
         d3d.swapChainOccluded = (presentResult == DXGI_STATUS_OCCLUDED);
         if (FAILED(presentResult) && presentResult != DXGI_STATUS_OCCLUDED) return 2;
 
-        // A static immediate-mode UI does not need 60 redraws per second indefinitely.
+        // A static immediate-mode UI does not need 60 redraws per second
+        // indefinitely.
         if (GetTickCount64() - lastInteractionTick > 1000) {
-            MsgWaitForMultipleObjects(0, nullptr, FALSE, 66, QS_ALLINPUT);  // about 15 FPS while idle
+            MsgWaitForMultipleObjects(0, nullptr, FALSE, 66,
+                                      QS_ALLINPUT);  // about 15 FPS while idle
         }
     }
 
@@ -541,8 +543,8 @@ void App::RenderUI() {
         if (RunAsAdmin(!isAdmin)) {
             done = true;
         } else {
-            MessageBoxW(hwnd, isAdmin ? L"Failed to start a standard-user instance."
-                                      : L"Elevation was cancelled or failed.",
+            MessageBoxW(hwnd,
+                        isAdmin ? L"Failed to start a standard-user instance." : L"Elevation was cancelled or failed.",
                         L.errorTitle, MB_OK | MB_ICONERROR);
         }
     }
@@ -623,7 +625,7 @@ void App::RenderUI() {
     const float path1InnerWidth = (std::max)(inputWidth, ImGui::CalcTextSize(path1.c_str()).x + 24.0f * s);
     const float pathChildHeight = 28.0f * s + ImGui::GetStyle().ScrollbarSize;
     ImGui::BeginChild("##path1_scroll", ImVec2(inputWidth, pathChildHeight), false,
-                      ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
+                      ImGuiWindowFlags_HorizontalScrollbar);
     ImGui::SetNextItemWidth(path1InnerWidth);
     ImGui::InputText("##path1", &path1);
     ImGui::EndChild();
@@ -643,7 +645,7 @@ void App::RenderUI() {
     ImGui::SetCursorPos(ImVec2(contentX, 120 * s));
     const float path2InnerWidth = (std::max)(inputWidth, ImGui::CalcTextSize(path2.c_str()).x + 24.0f * s);
     ImGui::BeginChild("##path2_scroll", ImVec2(inputWidth, pathChildHeight), false,
-                      ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
+                      ImGuiWindowFlags_HorizontalScrollbar);
     ImGui::SetNextItemWidth(path2InnerWidth);
     ImGui::InputText("##path2", &path2);
     ImGui::EndChild();
@@ -868,7 +870,7 @@ auto App::LoadMsyhFont(ImGuiIO& io, float size) -> ImFont* {
             const std::string utf8Path = Utf16ToUtf8(fontPath.wstring());
             if (!utf8Path.empty() && GetFileAttributesW(fontPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
                 if (ImFont* font = io.Fonts->AddFontFromFileTTF(utf8Path.c_str(), size, nullptr,
-                                                               io.Fonts->GetGlyphRangesChineseFull())) {
+                                                                io.Fonts->GetGlyphRangesChineseFull())) {
                     return font;
                 }
             }

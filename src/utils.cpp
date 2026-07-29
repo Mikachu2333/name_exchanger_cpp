@@ -11,15 +11,15 @@ namespace {
 [[nodiscard]] bool FitsInt(size_t size) noexcept {
     return size <= static_cast<size_t>((std::numeric_limits<int>::max)());
 }
-}
+}  // namespace
 
 std::string Utf16ToUtf8(const std::wstring& wstr) {
     if (wstr.empty()) return {};
     if (!FitsInt(wstr.size())) return {};
 
     const int sourceSize = static_cast<int>(wstr.size());
-    const int sizeNeeded = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wstr.data(), sourceSize, nullptr, 0,
-                                               nullptr, nullptr);
+    const int sizeNeeded =
+        WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wstr.data(), sourceSize, nullptr, 0, nullptr, nullptr);
     if (sizeNeeded <= 0) return {};
 
     std::string result(static_cast<size_t>(sizeNeeded), '\0');
@@ -83,8 +83,8 @@ struct RenameResult {
 bool EqualsOrdinal(std::wstring_view first, std::wstring_view second, bool ignoreCase) {
     if (first.size() != second.size()) return false;
     if (first.empty()) return true;
-    return CompareStringOrdinal(first.data(), static_cast<int>(first.size()), second.data(), static_cast<int>(second.size()),
-                                ignoreCase ? TRUE : FALSE) == CSTR_EQUAL;
+    return CompareStringOrdinal(first.data(), static_cast<int>(first.size()), second.data(),
+                                static_cast<int>(second.size()), ignoreCase ? TRUE : FALSE) == CSTR_EQUAL;
 }
 
 RenameResult RenameExecutableForMode(bool adminMode) {
@@ -110,7 +110,8 @@ RenameResult RenameExecutableForMode(bool adminMode) {
         temporary = original.parent_path() /
                     (original.filename().wstring() + L".__mode_" + std::to_wstring(GetCurrentProcessId()) + L"_" +
                      std::to_wstring(GetTickCount64()) + L"_" + std::to_wstring(attempt));
-        if (GetFileAttributesW(temporary.c_str()) == INVALID_FILE_ATTRIBUTES && GetLastError() == ERROR_FILE_NOT_FOUND) {
+        if (GetFileAttributesW(temporary.c_str()) == INVALID_FILE_ATTRIBUTES &&
+            GetLastError() == ERROR_FILE_NOT_FOUND) {
             break;
         }
         temporary.clear();
@@ -137,7 +138,8 @@ bool RestoreExecutableName(const RenameResult& rename) {
         temporary = renamed.parent_path() /
                     (renamed.filename().wstring() + L".__rollback_" + std::to_wstring(GetCurrentProcessId()) + L"_" +
                      std::to_wstring(GetTickCount64()) + L"_" + std::to_wstring(attempt));
-        if (GetFileAttributesW(temporary.c_str()) == INVALID_FILE_ATTRIBUTES && GetLastError() == ERROR_FILE_NOT_FOUND) {
+        if (GetFileAttributesW(temporary.c_str()) == INVALID_FILE_ATTRIBUTES &&
+            GetLastError() == ERROR_FILE_NOT_FOUND) {
             break;
         }
         temporary.clear();
@@ -168,10 +170,10 @@ bool LaunchUnelevatedViaExplorer(const std::wstring& exePath) {
     if (!ok || !explorerToken) return false;
 
     HANDLE primaryToken = nullptr;
-    ok = DuplicateTokenEx(explorerToken,
-                          TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT |
-                              TOKEN_ADJUST_SESSIONID,
-                          nullptr, SecurityImpersonation, TokenPrimary, &primaryToken);
+    ok = DuplicateTokenEx(
+        explorerToken,
+        TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID, nullptr,
+        SecurityImpersonation, TokenPrimary, &primaryToken);
     CloseHandle(explorerToken);
     if (!ok || !primaryToken) return false;
 
@@ -188,7 +190,7 @@ bool LaunchUnelevatedViaExplorer(const std::wstring& exePath) {
     CloseHandle(process.hProcess);
     return true;
 }
-}
+}  // namespace
 
 bool IsAdminModePreferred() {
     const std::wstring executable = GetExecutablePath();

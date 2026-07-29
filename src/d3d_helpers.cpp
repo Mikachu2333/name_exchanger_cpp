@@ -14,10 +14,9 @@ bool CreateDeviceD3D(HWND hWnd, D3DState& state) {
 
     D3D_FEATURE_LEVEL featureLevel{};
     constexpr D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
-    HRESULT result = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, levels,
-                                                   static_cast<UINT>(std::size(levels)), D3D11_SDK_VERSION,
-                                                   &description, &state.swapChain, &state.device, &featureLevel,
-                                                   &state.deviceContext);
+    HRESULT result = D3D11CreateDeviceAndSwapChain(
+        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, levels, static_cast<UINT>(std::size(levels)), D3D11_SDK_VERSION,
+        &description, &state.swapChain, &state.device, &featureLevel, &state.deviceContext);
     if (result == DXGI_ERROR_UNSUPPORTED) {
         result = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, levels,
                                                static_cast<UINT>(std::size(levels)), D3D11_SDK_VERSION, &description,
