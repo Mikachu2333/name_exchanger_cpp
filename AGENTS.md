@@ -1,6 +1,4 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# Introduction
 
 ## Build
 
@@ -10,8 +8,6 @@ ninja -C build
 ```
 
 Requires MSVC (GNU/MinGW is explicitly rejected). ImGui is fetched automatically via CMake FetchContent at configure time (requires network access). The CMake config auto-detects x64/x86 for linking the correct pre-built lib. The output is `build/name_exchanger_x64.exe` (or `_x86`).
-
-To update Dear ImGui, change the `GIT_TAG` in `CMakeLists.txt` (e.g. `v1.91.8` → `v1.92.0`).
 
 ## Project overview
 

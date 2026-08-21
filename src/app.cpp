@@ -634,7 +634,7 @@ void App::RenderUI() {
 
     // Label 2
     if (fontLabel) ImGui::PushFont(fontLabel);
-    ImGui::SetCursorPos(ImVec2(contentX, 100 * s));
+    ImGui::SetCursorPos(ImVec2(contentX, 104 * s));
     ImGui::Text("%s", L.file2Label);
     if (fontLabel) ImGui::PopFont();
 
@@ -642,7 +642,7 @@ void App::RenderUI() {
     if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
-    ImGui::SetCursorPos(ImVec2(contentX, 120 * s));
+    ImGui::SetCursorPos(ImVec2(contentX, 124 * s));
     const float path2InnerWidth = (std::max)(inputWidth, ImGui::CalcTextSize(path2.c_str()).x + 24.0f * s);
     ImGui::BeginChild("##path2_scroll", ImVec2(inputWidth, pathChildHeight), false,
                       ImGuiWindowFlags_HorizontalScrollbar);
@@ -652,12 +652,12 @@ void App::RenderUI() {
     ImGui::PopStyleVar(2);
     if (fontLabel) ImGui::PopFont();
 
-    const float optionY = 158.0f * s;
+    const float optionY = 166.0f * s;
     const float startBtnY = winH - 48.0f * s;
 
     if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f * s, 1.0f * s));
-    const float optionGap = 14.0f * s;
+    const float optionGap = 40.0f * s;
     if (optionWidth <= 0.0f) {
         optionWidth = ImGui::CalcTextSize(L.preserveExtLabel).x + ImGui::GetFrameHeight() + optionGap +
                       ImGui::CalcTextSize(L.swapFullNameLabel).x + ImGui::GetFrameHeight();
