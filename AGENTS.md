@@ -36,7 +36,7 @@ extern "C" int exchange(const char* path1, const char* path2, bool preserve_ext)
 
 - **`src/font_data.hpp`** — Auto-generated binary blob from a custom TTF icon font. The `kIconFontData` array is loaded as an ImGui memory font at 15pt.
 
-- **`res/`** — Windows resource files: icon, version info (currently `3.1.1`), and `version.hpp`.
+- **`res/`** — Windows resource files: icon, version info, and `version.hpp`.
 
 ## UI behavior notes
 

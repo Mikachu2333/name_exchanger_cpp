@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.1.0)
-project(NameExchanger VERSION 3.1.3 LANGUAGES CXX C)
+project(NameExchanger LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
