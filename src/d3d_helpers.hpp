@@ -15,5 +15,5 @@ struct D3DState {
 
 [[nodiscard]] bool CreateDeviceD3D(HWND hWnd, D3DState& state);
 void CleanupDeviceD3D(D3DState& state) noexcept;
-[[nodiscard]] bool CreateRenderTarget(D3DState& state);
+[[nodiscard]] HRESULT CreateRenderTarget(D3DState& state);
 void CleanupRenderTarget(D3DState& state) noexcept;

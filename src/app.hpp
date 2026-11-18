@@ -2,6 +2,8 @@
 
 #include "d3d_helpers.hpp"
 #include "imgui.h"
+#include <array>
+#include <optional>
 #include <string>
 #include <windows.h>
 
@@ -10,12 +12,14 @@ struct ImFont;
 
 // Application state and UI
 struct App {
-    std::string path1 = "";
-    std::string path2 = "";
+    std::array<std::string, 2> paths;
+    std::optional<std::array<std::string, 2>> pendingPaths;
+    unsigned pathRevision = 0;
+    std::array<float, 2> pathWidths{-1.0f, -1.0f};
     bool preserveExt = true;
 
     bool isTopmost = true;
-    bool showWindow = true;
+    UINT taskbarCreatedMessage = 0;
     bool done = false;
     bool isAdmin = false;
 
@@ -26,12 +30,12 @@ struct App {
 
     // DPI scaling
     float dpiScale = 1.0f;
+    UINT pendingDpi = 0;
     float optionWidth = 0.0f;
 
     // Fonts
     ImFont* fontIcon = nullptr;
     ImFont* fontLabel = nullptr;
-    ImFont* fontStartBtn = nullptr;
 
     // Theme colors (sync with Windows app theme)
     ImVec4 clearColor = ImVec4(0.94f, 0.94f, 0.94f, 1.0f);
@@ -53,6 +57,8 @@ struct App {
 
     // Cleanup all resources
     void Shutdown();
+    void ReleaseRenderer();
+    bool HandleGraphicsError(HRESULT result);
 
     // Render one frame of the UI
     void RenderUI();
@@ -69,8 +75,7 @@ struct App {
     // Apply colors from current Windows theme settings
     void ApplySystemTheme();
 
-    // Load MSYH font with the given size
-    ImFont* LoadMsyhFont(ImGuiIO& io, float size);
+    void DrawPathInput(size_t index, const char* childId, float inputWidth);
 };
 
 // Global app instance (needed for WndProc callback)

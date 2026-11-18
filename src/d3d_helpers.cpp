@@ -22,7 +22,7 @@ bool CreateDeviceD3D(HWND hWnd, D3DState& state) {
                                                static_cast<UINT>(std::size(levels)), D3D11_SDK_VERSION, &description,
                                                &state.swapChain, &state.device, &featureLevel, &state.deviceContext);
     }
-    if (FAILED(result) || !CreateRenderTarget(state)) {
+    if (FAILED(result) || FAILED(CreateRenderTarget(state))) {
         CleanupDeviceD3D(state);
         return false;
     }
@@ -30,6 +30,7 @@ bool CreateDeviceD3D(HWND hWnd, D3DState& state) {
 }
 
 void CleanupDeviceD3D(D3DState& state) noexcept {
+    if (state.deviceContext) state.deviceContext->ClearState();
     CleanupRenderTarget(state);
     if (state.swapChain) {
         state.swapChain->Release();
@@ -43,19 +44,20 @@ void CleanupDeviceD3D(D3DState& state) noexcept {
         state.device->Release();
         state.device = nullptr;
     }
+    state = {};
 }
 
-bool CreateRenderTarget(D3DState& state) {
+HRESULT CreateRenderTarget(D3DState& state) {
     CleanupRenderTarget(state);
-    if (!state.swapChain || !state.device) return false;
+    if (!state.swapChain || !state.device) return E_UNEXPECTED;
 
     ID3D11Texture2D* backBuffer = nullptr;
     const HRESULT getResult = state.swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-    if (FAILED(getResult) || !backBuffer) return false;
+    if (FAILED(getResult)) return getResult;
 
     const HRESULT viewResult = state.device->CreateRenderTargetView(backBuffer, nullptr, &state.renderTargetView);
     backBuffer->Release();
-    return SUCCEEDED(viewResult) && state.renderTargetView;
+    return viewResult;
 }
 
 void CleanupRenderTarget(D3DState& state) noexcept {

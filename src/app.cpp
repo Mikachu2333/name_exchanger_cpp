@@ -23,6 +23,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 
 // Forward declaration for ImGui Win32 handler
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -32,6 +33,37 @@ static App g_app;
 App& GetApp() { return g_app; }
 
 namespace {
+std::string ReadDroppedPath(HDROP drop, UINT index) {
+    const UINT length = DragQueryFileW(drop, index, nullptr, 0);
+    if (!length) return {};
+    std::wstring path(length + 1, L'\0');
+    if (DragQueryFileW(drop, index, path.data(), length + 1) != length) return {};
+    path.resize(length);
+    return Utf16ToUtf8(path);
+}
+
+ImFont* LoadTextFont(ImGuiIO& io) {
+    wchar_t windowsDirectory[MAX_PATH]{};
+    const UINT length = GetWindowsDirectoryW(windowsDirectory, static_cast<UINT>(std::size(windowsDirectory)));
+    if (!length || length >= std::size(windowsDirectory)) return io.Fonts->AddFontDefault();
+    const auto directory = std::filesystem::path(windowsDirectory) / L"Fonts";
+    ImFontConfig config;
+    config.Flags |= ImFontFlags_NoLoadError;
+    const auto load = [&](const wchar_t* filename) {
+        const auto path = Utf16ToUtf8((directory / filename).wstring());
+        return io.Fonts->AddFontFromFileTTF(path.c_str(), 16.0f, &config);
+    };
+    ImFont* base = nullptr;
+    for (const auto* filename : {L"msyh.ttc", L"msyh.ttf", L"msjh.ttc", L"segoeui.ttf"}) {
+        base = load(filename);
+        if (base) break;
+    }
+    if (!base) base = io.Fonts->AddFontDefault();
+    config.MergeMode = true;
+    for (const auto* filename : {L"simsunb.ttf", L"seguiemj.ttf"}) load(filename);
+    return base;
+}
+
 ImVec4 ToImVec4(COLORREF color, float alpha = 1.0f) {
     return ImVec4(GetRValue(color) / 255.0f, GetGValue(color) / 255.0f, GetBValue(color) / 255.0f, alpha);
 }
@@ -335,8 +367,9 @@ bool App::Init(HINSTANCE hInstance) {
     }
 
     // A tray failure is non-fatal; the window remains fully usable.
-    const bool trayAvailable = SetupTrayIcon(hwnd);
-    (void)trayAvailable;
+    taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
+    if (taskbarCreatedMessage) ChangeWindowMessageFilterEx(hwnd, taskbarCreatedMessage, MSGFLT_ALLOW, nullptr);
+    if (!SetupTrayIcon(hwnd)) ShowWindow(hwnd, SW_SHOW);
 
     // Enable drag and drop
     DragAcceptFiles(hwnd, TRUE);
@@ -357,17 +390,15 @@ bool App::Init(HINSTANCE hInstance) {
     ImGui_ImplDX11_Init(d3d.device, d3d.deviceContext);
 
     // Load fonts
-    fontLabel = LoadMsyhFont(io, 16.0f * dpiScale);
-
-    // Start button font (24pt)
-    fontStartBtn = LoadMsyhFont(io, 24.0f * dpiScale);
+    fontLabel = LoadTextFont(io);
+    ImGui::GetStyle().FontScaleDpi = dpiScale;
 
     // Icon font (15pt for title bar buttons)
     {
         ImFontConfig cfg;
         cfg.FontDataOwnedByAtlas = false;
         fontIcon = io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(kIconFontData),
-                                                  static_cast<int>(kIconFontDataSize), 15.0f * dpiScale, &cfg);
+                                                  static_cast<int>(kIconFontDataSize), 15.0f, &cfg);
     }
 
     return true;
@@ -375,35 +406,53 @@ bool App::Init(HINSTANCE hInstance) {
 
 int App::Run() {
     lastInteractionTick = GetTickCount64();
+    ULONGLONG retryRendererAt = 0;
     while (!done) {
         MSG msg{};
         while (PeekMessageW(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) return 0;
+            if ((msg.message >= WM_MOUSEFIRST && msg.message <= WM_MOUSELAST) ||
+                (msg.message >= WM_KEYFIRST && msg.message <= WM_KEYLAST)) {
+                lastInteractionTick = GetTickCount64();
+            }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
-        }
-        if (msg.message == WM_QUIT) {
-            done = true;
         }
         if (done) {
             break;
         }
 
-        const ImGuiIO& previousFrameIo = ImGui::GetIO();
-        if (previousFrameIo.MouseDelta.x != 0.0f || previousFrameIo.MouseDelta.y != 0.0f ||
-            previousFrameIo.MouseWheel != 0.0f || previousFrameIo.MouseWheelH != 0.0f ||
-            previousFrameIo.InputQueueCharacters.Size != 0 || ImGui::IsAnyMouseDown() || ImGui::IsAnyItemActive()) {
-            lastInteractionTick = GetTickCount64();
+        if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) {
+            MsgWaitForMultipleObjectsEx(0, nullptr, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+            continue;
         }
 
-        if (!showWindow) {
-            WaitMessage();
-            continue;
+        if (!d3d.device) {
+            const ULONGLONG now = GetTickCount64();
+            if (now < retryRendererAt) {
+                MsgWaitForMultipleObjectsEx(0, nullptr, static_cast<DWORD>(retryRendererAt - now), QS_ALLINPUT,
+                                            MWMO_INPUTAVAILABLE);
+                continue;
+            }
+            if (!CreateDeviceD3D(hwnd, d3d) || !ImGui_ImplDX11_Init(d3d.device, d3d.deviceContext) ||
+                !ImGui_ImplDX11_CreateDeviceObjects()) {
+                ReleaseRenderer();
+                retryRendererAt = GetTickCount64() + 500;
+                continue;
+            }
         }
 
         // Handle swap chain occlusion without busy polling.
-        if (d3d.swapChainOccluded && d3d.swapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) {
-            MsgWaitForMultipleObjects(0, nullptr, FALSE, 100, QS_ALLINPUT);
-            continue;
+        if (d3d.swapChainOccluded) {
+            const HRESULT result = d3d.swapChain->Present(0, DXGI_PRESENT_TEST);
+            if (result == DXGI_STATUS_OCCLUDED) {
+                MsgWaitForMultipleObjectsEx(0, nullptr, 100, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+                continue;
+            }
+            if (FAILED(result)) {
+                if (HandleGraphicsError(result)) continue;
+                return 2;
+            }
         }
         d3d.swapChainOccluded = false;
 
@@ -412,11 +461,23 @@ int App::Run() {
             const UINT width = d3d.resizeWidth;
             const UINT height = d3d.resizeHeight;
             d3d.resizeWidth = d3d.resizeHeight = 0;
+            d3d.deviceContext->OMSetRenderTargets(0, nullptr, nullptr);
             CleanupRenderTarget(d3d);
-            const HRESULT resizeResult = d3d.swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
-            if (FAILED(resizeResult) || !CreateRenderTarget(d3d)) return 2;
+            HRESULT result = d3d.swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+            if (SUCCEEDED(result)) result = CreateRenderTarget(d3d);
+            if (FAILED(result)) {
+                if (HandleGraphicsError(result)) continue;
+                return 2;
+            }
         }
 
+        if (pendingDpi) {
+            dpiScale = static_cast<float>(pendingDpi) / 96.0f;
+            ImGui::GetStyle().FontScaleDpi = dpiScale;
+            optionWidth = 0.0f;
+            pathWidths.fill(-1.0f);
+            pendingDpi = 0;
+        }
         // Start ImGui frame
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
@@ -433,25 +494,39 @@ int App::Run() {
 
         const HRESULT presentResult = d3d.swapChain->Present(1, 0);  // Present with vsync
         d3d.swapChainOccluded = (presentResult == DXGI_STATUS_OCCLUDED);
-        if (FAILED(presentResult) && presentResult != DXGI_STATUS_OCCLUDED) return 2;
+        if (FAILED(presentResult)) {
+            if (HandleGraphicsError(presentResult)) continue;
+            return 2;
+        }
 
         // A static immediate-mode UI does not need 60 redraws per second
         // indefinitely.
-        if (GetTickCount64() - lastInteractionTick > 1000) {
-            MsgWaitForMultipleObjects(0, nullptr, FALSE, 66,
-                                      QS_ALLINPUT);  // about 15 FPS while idle
+        if (!done && !d3d.swapChainOccluded && GetTickCount64() - lastInteractionTick > 1000) {
+            const DWORD timeout = ImGui::GetIO().WantTextInput ? 200 : INFINITE;
+            MsgWaitForMultipleObjectsEx(0, nullptr, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         }
     }
 
     return 0;
 }
 
+void App::ReleaseRenderer() {
+    if (ImGui::GetIO().BackendRendererUserData) ImGui_ImplDX11_Shutdown();
+    CleanupDeviceD3D(d3d);
+}
+
+bool App::HandleGraphicsError(HRESULT result) {
+    if (result != DXGI_ERROR_DEVICE_REMOVED && result != DXGI_ERROR_DEVICE_RESET &&
+        SUCCEEDED(d3d.device->GetDeviceRemovedReason())) return false;
+    ReleaseRenderer();
+    return true;
+}
+
 void App::Shutdown() {
     RemoveTrayIcon();
-    ImGui_ImplDX11_Shutdown();
+    ReleaseRenderer();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
-    CleanupDeviceD3D(d3d);
 
     if (hwnd) {
         DestroyWindow(hwnd);
@@ -464,7 +539,28 @@ void App::Shutdown() {
     }
 }
 
+void App::DrawPathInput(size_t index, const char* childId, float inputWidth) {
+    const float height = 28.0f * dpiScale;
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f * dpiScale, (height - ImGui::GetFontSize()) * 0.5f));
+    ImGui::BeginChild(childId, ImVec2(inputWidth, height + ImGui::GetStyle().ScrollbarSize), false,
+                      ImGuiWindowFlags_HorizontalScrollbar);
+    if (pathWidths[index] < 0.0f) pathWidths[index] = ImGui::CalcTextSize(paths[index].c_str()).x;
+    ImGui::SetNextItemWidth((std::max)(inputWidth, pathWidths[index] + 24.0f * dpiScale));
+    ImGui::PushID(static_cast<int>(pathRevision));
+    if (ImGui::InputText("##path", &paths[index])) pathWidths[index] = -1.0f;
+    ImGui::PopID();
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+}
+
 void App::RenderUI() {
+    if (pendingPaths) {
+        paths = std::move(*pendingPaths);
+        pendingPaths.reset();
+        ++pathRevision;
+        pathWidths.fill(-1.0f);
+    }
     const auto& L = GetCurrentLocale();
     const float s = dpiScale;
 
@@ -582,10 +678,11 @@ void App::RenderUI() {
 
     // Minimize button
     ImGui::SetCursorPos(ImVec2(winW - each_width * 2, btnY));
+    ImGui::BeginDisabled(!IsTrayIconAvailable());
     if (ImGui::Button("G", ImVec2(btnSize, btnSize))) {
-        showWindow = false;
         ShowWindow(hwnd, SW_HIDE);
     }
+    ImGui::EndDisabled();
 
     // Close button
     ImGui::SetCursorPos(ImVec2(winW - each_width, btnY));
@@ -603,8 +700,8 @@ void App::RenderUI() {
     // Window drag on empty area of the bar
     if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         ReleaseCapture();
-        SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-        ImGui::GetIO().MouseDown[0] = false;
+        ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        PostMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, static_cast<LPARAM>(GetMessagePos()));
     }
 
     ImGui::EndChild();
@@ -615,47 +712,18 @@ void App::RenderUI() {
     if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::SetCursorPos(ImVec2(contentX, 42 * s));
     ImGui::Text("%s", L.file1Label);
-    if (fontLabel) ImGui::PopFont();
-
-    // Keep an explicit horizontal scrollbar for long paths.
-    if (fontLabel) ImGui::PushFont(fontLabel);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
     ImGui::SetCursorPos(ImVec2(contentX, 62 * s));
-    const float path1InnerWidth = (std::max)(inputWidth, ImGui::CalcTextSize(path1.c_str()).x + 24.0f * s);
-    const float pathChildHeight = 28.0f * s + ImGui::GetStyle().ScrollbarSize;
-    ImGui::BeginChild("##path1_scroll", ImVec2(inputWidth, pathChildHeight), false,
-                      ImGuiWindowFlags_HorizontalScrollbar);
-    ImGui::SetNextItemWidth(path1InnerWidth);
-    ImGui::InputText("##path1", &path1);
-    ImGui::EndChild();
-    ImGui::PopStyleVar(2);
-    if (fontLabel) ImGui::PopFont();
+    DrawPathInput(0, "##path1_scroll", inputWidth);
 
     // Label 2
-    if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::SetCursorPos(ImVec2(contentX, 104 * s));
     ImGui::Text("%s", L.file2Label);
-    if (fontLabel) ImGui::PopFont();
-
-    // Input 2
-    if (fontLabel) ImGui::PushFont(fontLabel);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4 * s, (28 * s - ImGui::GetFontSize()) / 2.0f));
     ImGui::SetCursorPos(ImVec2(contentX, 124 * s));
-    const float path2InnerWidth = (std::max)(inputWidth, ImGui::CalcTextSize(path2.c_str()).x + 24.0f * s);
-    ImGui::BeginChild("##path2_scroll", ImVec2(inputWidth, pathChildHeight), false,
-                      ImGuiWindowFlags_HorizontalScrollbar);
-    ImGui::SetNextItemWidth(path2InnerWidth);
-    ImGui::InputText("##path2", &path2);
-    ImGui::EndChild();
-    ImGui::PopStyleVar(2);
-    if (fontLabel) ImGui::PopFont();
+    DrawPathInput(1, "##path2_scroll", inputWidth);
 
     const float optionY = 166.0f * s;
     const float startBtnY = winH - 48.0f * s;
 
-    if (fontLabel) ImGui::PushFont(fontLabel);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f * s, 1.0f * s));
     const float optionGap = 40.0f * s;
     if (optionWidth <= 0.0f) {
@@ -670,22 +738,23 @@ void App::RenderUI() {
     if (fontLabel) ImGui::PopFont();
 
     // Exchange button
-    if (fontStartBtn) ImGui::PushFont(fontStartBtn);
+    ImGui::PushFont(fontLabel, 24.0f);
     float btnW = 124 * s;
     float btnH2 = 44 * s;
     ImGui::SetCursorPos(ImVec2((winW - btnW) / 2.0f, startBtnY));
     if (ImGui::Button(L.startButton, ImVec2(btnW, btnH2))) {
-        const int returnId = ExchangePaths(path1, path2, preserveExt);
+        const int returnId = ExchangePaths(paths[0], paths[1], preserveExt);
         if (returnId == 0) {
-            path1.clear();
-            path2.clear();
+            paths = {};
+            pathWidths.fill(-1.0f);
+            ++pathRevision;
         } else {
             const char* info = GetOutputInfo(returnId);
             std::wstring winfo = Utf8ToUtf16(info);
             MessageBoxW(hwnd, winfo.c_str(), L.errorTitle, MB_OK | MB_ICONERROR);
         }
     }
-    if (fontStartBtn) ImGui::PopFont();
+    ImGui::PopFont();
 
     ImGui::End();
     ImGui::PopStyleVar();  // WindowPadding
@@ -737,7 +806,19 @@ void App::CreateSendToShortcut(bool remove) {
 }
 
 LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (taskbarCreatedMessage && msg == taskbarCreatedMessage) {
+        if (!SetupTrayIcon(hWnd) && (!IsWindowVisible(hWnd) || IsIconic(hWnd))) ShowWindow(hWnd, SW_RESTORE);
+        InvalidateRect(hWnd, nullptr, FALSE);
+        return 0;
+    }
     switch (msg) {
+        case WM_SHOWWINDOW:
+            if (wParam) {
+                lastInteractionTick = GetTickCount64();
+                InvalidateRect(hWnd, nullptr, FALSE);
+            }
+            break;
+
         case WM_SIZE:
             if (wParam == SIZE_MINIMIZED) {
                 return 0;
@@ -764,81 +845,39 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
 
         case WM_DPICHANGED: {
-            UpdateDpiScale();
+            pendingDpi = LOWORD(wParam);
             const auto* suggested = reinterpret_cast<const RECT*>(lParam);
             if (suggested) {
-                const int width = static_cast<int>(364 * dpiScale);
-                const int height = static_cast<int>(240 * dpiScale);
-                SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, width, height,
-                             SWP_NOZORDER | SWP_NOACTIVATE);
+                SetWindowPos(hWnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+                             suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             }
-
-            // Rebuild fonts with new DPI
-            ImGuiIO& io = ImGui::GetIO();
-            io.Fonts->Clear();
-
-            fontLabel = LoadMsyhFont(io, 16.0f * dpiScale);
-            fontStartBtn = LoadMsyhFont(io, 24.0f * dpiScale);
-            optionWidth = 0.0f;
-
-            ImFontConfig cfg;
-            cfg.FontDataOwnedByAtlas = false;
-            fontIcon = io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(kIconFontData),
-                                                      static_cast<int>(kIconFontDataSize), 15.0f * dpiScale, &cfg);
-
-            ImGui_ImplDX11_InvalidateDeviceObjects();
-            ImGui_ImplDX11_CreateDeviceObjects();
             return 0;
         }
 
         case WM_DROPFILES: {
-            HDROP hDrop = reinterpret_cast<HDROP>(wParam);
-            if (!hDrop) return 0;
-            const UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+            const auto drop = reinterpret_cast<HDROP>(wParam);
+            if (!drop) return 0;
+            const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+            auto first = count ? ReadDroppedPath(drop, 0) : std::string{};
+            auto second = count >= 2 ? ReadDroppedPath(drop, 1) : std::string{};
+            DragFinish(drop);
+            if (first.empty() || (count >= 2 && second.empty())) return 0;
 
-            if (count == 1) {
-                UINT len = DragQueryFileW(hDrop, 0, nullptr, 0);
-                std::wstring file(len + 1, L'\0');
-                if (DragQueryFileW(hDrop, 0, file.data(), len + 1) != len) {
-                    DragFinish(hDrop);
-                    return 0;
-                }
-                file.resize(len);
-                std::string u8file = Utf16ToUtf8(file);
-                if (u8file.empty()) {
-                    DragFinish(hDrop);
-                    return 0;
-                }
-
-                if (path1.empty()) {
-                    path1 = u8file;
-                } else if (path2.empty()) {
-                    path2 = u8file;
+            if (count >= 2) {
+                pendingPaths = std::array{std::move(first), std::move(second)};
+            } else {
+                if (!pendingPaths) pendingPaths = paths;
+                auto& [left, right] = *pendingPaths;
+                if (left.empty()) {
+                    left = std::move(first);
+                } else if (right.empty()) {
+                    right = std::move(first);
                 } else {
-                    path1 = u8file;
-                    path2.clear();
-                }
-            } else if (count >= 2) {
-                UINT len1 = DragQueryFileW(hDrop, 0, nullptr, 0);
-                std::wstring file1(len1 + 1, L'\0');
-                const bool firstRead = DragQueryFileW(hDrop, 0, file1.data(), len1 + 1) == len1;
-                file1.resize(len1);
-
-                const UINT len2 = DragQueryFileW(hDrop, 1, nullptr, 0);
-                std::wstring file2(len2 + 1, L'\0');
-                const bool secondRead = DragQueryFileW(hDrop, 1, file2.data(), len2 + 1) == len2;
-                file2.resize(len2);
-
-                if (firstRead && secondRead) {
-                    const std::string first = Utf16ToUtf8(file1);
-                    const std::string second = Utf16ToUtf8(file2);
-                    if (!first.empty() && !second.empty()) {
-                        path1 = first;
-                        path2 = second;
-                    }
+                    left = std::move(first);
+                    right.clear();
                 }
             }
-            DragFinish(hDrop);
+            InvalidateRect(hWnd, nullptr, FALSE);
             return 0;
         }
 
@@ -846,10 +885,12 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // NOTIFYICON_VERSION_4 places the event in LOWORD(lParam).
             switch (LOWORD(lParam)) {
                 case WM_LBUTTONUP:
-                    showWindow = !showWindow;
-                    ShowWindow(hwnd, showWindow ? SW_SHOW : SW_HIDE);
-                    if (showWindow) {
-                        SetForegroundWindow(hwnd);
+                case NIN_KEYSELECT:
+                    if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) {
+                        ShowWindow(hWnd, SW_RESTORE);
+                        SetForegroundWindow(hWnd);
+                    } else if (IsTrayIconAvailable()) {
+                        ShowWindow(hWnd, SW_HIDE);
                     }
                     break;
                 case WM_RBUTTONUP:
@@ -860,23 +901,4 @@ LRESULT App::HandleMessage(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
-}
-
-auto App::LoadMsyhFont(ImGuiIO& io, float size) -> ImFont* {
-    wchar_t windowsDirectory[MAX_PATH]{};
-    if (GetWindowsDirectoryW(windowsDirectory, static_cast<UINT>(std::size(windowsDirectory))) != 0) {
-        for (const wchar_t* filename : {L"msyh.ttc", L"msyh.ttf"}) {
-            const std::filesystem::path fontPath = std::filesystem::path(windowsDirectory) / L"Fonts" / filename;
-            const std::string utf8Path = Utf16ToUtf8(fontPath.wstring());
-            if (!utf8Path.empty() && GetFileAttributesW(fontPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-                if (ImFont* font = io.Fonts->AddFontFromFileTTF(utf8Path.c_str(), size, nullptr,
-                                                                io.Fonts->GetGlyphRangesChineseFull())) {
-                    return font;
-                }
-            }
-        }
-    }
-    ImFontConfig cfg;
-    cfg.SizePixels = size;
-    return io.Fonts->AddFontDefault(&cfg);
 }

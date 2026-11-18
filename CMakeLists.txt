@@ -53,6 +53,7 @@ set(RC_FILE ${CMAKE_CURRENT_SOURCE_DIR}/res/res.rc)
 
 # Executable
 add_executable(${PROJECT_NAME} WIN32 ${APP_SOURCES} ${IMGUI_SOURCES} ${RC_FILE})
+target_compile_definitions(${PROJECT_NAME} PRIVATE IMGUI_USE_WCHAR32)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${imgui_SOURCE_DIR}
